@@ -124,7 +124,6 @@ class Dropbox(Operations):
       try:
         item = client.metadata(path)
         if item['is_dir'] == False:
-           print str(item)
            if 'is_deleted' in item:
              return False
            else:
@@ -335,7 +334,7 @@ class Dropbox(Operations):
     # Loop through the Dropbox API reply to build fuse structure.
     for item in metadata['contents']:
       # Append entry to fuse foldercontent.
-      folderitem = os.path.basename(item['path'].encode("utf-8"))
+      folderitem = os.path.basename(item['path'])
       fusefolder.append(folderitem)
 
     # Loop through the folder content.
