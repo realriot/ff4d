@@ -378,6 +378,8 @@ class Dropbox(Operations):
         st_ctime=modified,
         st_mtime=modified,
         st_atime=now,
+        st_uid=uid,
+        st_gid=gid,
         st_nlink=dircount,
       )
       if debug == True: appLog('debug', 'Returning properties for directory: ' + path + ' (' + str(properties) + ')')
