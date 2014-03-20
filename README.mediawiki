@@ -15,4 +15,13 @@ of this FUSE plugin.
 '''Please secure you access token. NOBODY may know it! This token allows full access
 to your configured dropbox space.'''
 
+=== Usage ===
+To use this FUSE plugin you just have to install fuse and this plugin.
+The start is really simple:
+
+ ./ff4d.py <mount folder> [acesstoken]
+
+The accesstoken can optionally supplied via commandline. Normaly the plugin will ask just one time
+and saves it to a configuration file.
+
 ''Sascha Schmidt''
