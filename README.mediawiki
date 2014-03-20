@@ -1,0 +1,18 @@
+'''FUSE Filesystem 4 Dropbox''' is a FUSE plugin whichs allows a local mount of your
+global Dropbox or jailed application folder.
+
+To improve the browsing experience of your Dropbox content this plugin will cache
+the structure for a certain amount of time. There's still some work to do to improve
+the caching routine.
+
+=== Authorize access ===
+Select the access mode and get the access token for your Dropbox account at:
+[http://api.schmidt.ps/authFUSEFilesystem4Dropbox http://api.schmidt.ps/authFUSEFilesystem4Dropbox]
+
+After validation an access token is displayed which you have to enter at the first runtime
+of this FUSE plugin. 
+
+'''Please secure you access token. NOBODY may know it! This token allows full access
+to your configured dropbox space.'''
+
+''Sascha Schmidt''
