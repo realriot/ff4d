@@ -12,8 +12,8 @@ Select the access mode and get the access token for your Dropbox account at:
 After validation an access token is displayed which you have to enter at the first runtime
 of this FUSE plugin. 
 
-''As an alternative'' you can use the enclosed ./getDropboxAccessToken.py script to fetch
-an access token. But remember that you have to add an Dropbox application within
+''As an alternative'' you can use the enclosed '''./getDropboxAccessToken.py''' script to fetch
+the token. But remember that you have to add an Dropbox application within
 the [https://www.dropbox.com/developers Dropbox Developer home] by yourself, too.
 
 '''Please secure you access token. NOBODY may know it! This token allows full access
@@ -25,7 +25,8 @@ The start is really simple:
 
  ./ff4d.py <mount folder> [acesstoken]
 
-The accesstoken can optionally supplied via commandline. Normaly the plugin will ask just one time
+The accesstoken can optionally supplied via commandline. Normaly the plugin will ask you just one time
 and saves it to a configuration file.
 
+Greets and have fun with this little goodie...
 ''Sascha Schmidt''
