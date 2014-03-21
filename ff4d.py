@@ -27,10 +27,11 @@ from errno import *
 # DEBUG settings.
 debug = True
 debug_raw = True
-debug_unsupported = True
+debug_unsupported = False 
 
 # Global variables.
 access_token = False
+cache_time = 120 # Seconds
 write_cache = 4194304 # Bytes
 
 # FUSE Class to handle operations.
@@ -60,6 +61,20 @@ class Dropbox(Operations):
       self.openfh.pop(fh)
     else:
       return False
+
+  # Remove item from cache.
+  def removeFromCache(self, path):
+    if path in self.cache:
+      item = self.cache[path]
+      if item['is_dir'] == True:
+        # Remove folder items from cache.
+        for tmp in item['contents']:
+          if debug == True: appLog('debug', 'Removing from cache: ' + tmp['path'].encode("utf-8"))
+          if tmp['path'].encode("utf-8") in self.cache:
+            self.cache.pop(tmp['path'].encode("utf-8"))
+      if debug == True: appLog('debug', 'Removing from cache: ' + path) 
+      self.cache.pop(path)
+    return True
 
   # Upload data to Dropbox via RESTClient.
   def DropboxUploadChunk(self, data, upload_id = "", offset = 0):
@@ -91,81 +106,69 @@ class Dropbox(Operations):
              )
     return result
 
-  # Get metadata for a file or folder from the Dropbox API.
+  # Get metadata for a file or folder from the Dropbox API or local cache.
   def getDropboxMetadata(self, path):
+    # Metadata exists within cache.
     if path in self.cache:
-      if debug == True: appLog('debug', 'Found cached metadata for path: ' + path)
+      if debug == True: appLog('debug', 'Found cached metadata for: ' + path)
       item = self.cache[path]
 
-      # Check if we have to cache subitems of this object.
-      if item['is_dir'] == True:
-        for tmp in item['contents']:
-          if tmp['is_dir'] == True:
-            if tmp['path'] not in self.cache:
-              if debug == True: appLog('debug', 'Subitem not found in cache: ' + tmp['path'].encode("utf-8"))
-              try:
-                subitem = client.metadata(tmp['path'].encode("utf-8"))
-              except dropbox.rest.ErrorResponse, e:
-                appLog('error', 'Could not fetch metadata for: ' + tmp['path'].encode("utf-8"), e.reason)
-                if e.status == 404:
-                  return False
-                else:
-                  raise FuseOSError(EREMOTEIO)
-              # Cache newly fetched subfolder of cached folder.
-              self.cache[tmp['path'].encode("utf-8")] = subitem
-              if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + tmp['path'].encode("utf-8") + ')')
-              if debug_raw == True: appLog('debug', str(subitem))
-              # Cache files of subfolder.
-              for subtmp in subitem['contents']:
-                if subtmp['is_dir'] == False:
-                  self.cache[subtmp['path'].encode("utf-8")] = subtmp
+      # Check whether this is a directory and if there any remote changes.
+      if item['is_dir'] == True and item['cachets']<int(time()):
+        if debug == True: appLog('debug', 'cachets: ' + str(item['cachets']) + ' - ' + str(int(time())))
+        if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path)
+        try:
+          item = client.metadata(path, True, 25000, item['hash'])
+          if 'is_deleted' in item:
+            if item['is_deleted'] == True:
+              return False
+          if debug == True: appLog('debug', 'Remote endpoint signalizes changes. Updating local cache for folder: ' + path)
+          if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
+          if debug_raw == True: appLog('debug', str(item))
+
+          # Cache new data.
+          cachets = int(time())+cache_time
+          item.update({'cachets':cachets})
+          self.cache[path] = item
+          for tmp in item['contents']:
+            if tmp['is_dir'] == False:
+              if 'is_deleted' in tmp:
+                if tmp['is_deleted'] == False:
+                  tmp.update({'cachets':cachets})
+                  self.cache[tmp['path'].encode("utf-8")] = tmp
+        except dropbox.rest.ErrorResponse, e:
+          if debug == True: appLog('debug', 'No remote changes detected for folder: ' + path)
+      return item
+    # No cached data found, do an Dropbox API to fetch the metadata.
     else:
-      if debug == True: appLog('debug', 'No cached metadata for path: ' + path)
+      if debug == True: appLog('debug', 'No cached metadata for: ' + path)
       try:
         item = client.metadata(path)
-        if item['is_dir'] == False:
-           if 'is_deleted' in item:
-             return False
-           else:
-             return item
+        if 'is_deleted' in item:
+          if item['is_deleted'] == True:
+            return False
+        if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
+        if debug_raw == True: appLog('debug', str(item))
       except dropbox.rest.ErrorResponse, e:
         appLog('error', 'Could not fetch metadata for: ' + path, e.reason)
         if e.status == 404:
           return False
         else:
           raise FuseOSError(EREMOTEIO)
-      # If the item has the "deleted" flag.
-      if 'is_deleted' in item:
-        return False
 
-      if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
-      if debug_raw == True: appLog('debug', str(item))
-
-      # Cache directory data.
+      # Cache metadata.
+      cachets = int(time())+cache_time
+      item.update({'cachets':cachets})
       self.cache[path] = item
-      for tmp in item['contents']:
-         if tmp['is_dir'] == True:
-           if debug == True: appLog('debug', 'Create sub-cache for path: ' + tmp['path'].encode("utf-8"))
-           try:
-             subitem = client.metadata(tmp['path'].encode("utf-8"))
-           except dropbox.rest.ErrorResponse, e:
-             appLog('error', 'Could not fetch metadata for: ' + tmp['path'].encode("utf-8"), e.reason)
-             if e.status == 404:
-               return False
-             else:
-               raise FuseOSError(EREMOTEIO)
-           # Cache subfolder.
-           self.cache[tmp['path'].encode("utf-8")] = subitem
-           if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + tmp['path'].encode("utf-8") + ')')
-           if debug_raw == True: appLog('debug', str(subitem))
-           # Cache files of subfolder.
-           for subtmp in subitem['contents']:
-             if subtmp['is_dir'] == False:
-               self.cache[subtmp['path'].encode("utf-8")] = subtmp
-         else:
-           # Cache file information.
-           self.cache[tmp['path'].encode("utf-8")] = tmp
-    return item
+      # Cache files if this item is a file.
+      if item['is_dir'] == True:
+        for tmp in item['contents']:
+          if tmp['is_dir'] == False:
+            if 'is_deleted' in tmp:
+              if tmp['is_deleted'] == False:
+                tmp.update({'cachets':cachets})
+                self.cache[tmp['path'].encode("utf-8")] = tmp
+      return item
 
   #########################
   # Filesystem functions. #
@@ -177,8 +180,10 @@ class Dropbox(Operations):
     except dropbox.rest.ErrorResponse, e:
       appLog('error', 'Could not create folder: ' + path, e.reason)
       raise FuseOSError(EIO)
-    # Update cache.
-    self.cache.pop(os.path.dirname(path))
+
+    # Remove outdated data from cache.
+    self.removeFromCache(os.path.dirname(path))
+    return 0
 
   # Remove a directory.
   def rmdir(self, path):
@@ -188,11 +193,11 @@ class Dropbox(Operations):
     except dropbox.rest.ErrorResponse, e:
       appLog('error', 'Could not delete folder: ' + path, e.reason)
       raise FuseOSError(EIO)
-
-    # Finally remove folder from cache.
-    self.cache.pop(path)
-    self.cache.pop(os.path.dirname(path))
     if debug == True: appLog('debug', 'Successfully deleted folder: ' + path) 
+
+    # Remove outdated data from cache.
+    self.removeFromCache(path)
+    self.removeFromCache(os.path.dirname(path))
     return 0
 
   # Remove a file.
@@ -203,12 +208,11 @@ class Dropbox(Operations):
     except dropbox.rest.ErrorResponse, e:
       appLog('error', 'Could not delete file: ' + path, e.reason)
       raise FuseOSError(EIO)
-
-    # Finally remove the file from cache.
-    self.cache.pop(path)
-    self.cache.pop(os.path.dirname(path))
     if debug == True: appLog('debug', 'Successfully deleted file: ' + path)
-    return 0 
+
+    # Remove outdated data from cache.
+    self.removeFromCache(os.path.dirname(path))
+    return 0
 
   # Rename a file or directory.
   def rename(self, old, new):
@@ -218,16 +222,12 @@ class Dropbox(Operations):
     except dropbox.rest.ErrorResponse, e:
       appLog('error', 'Could not rename object: ' + old, e.reason)
       raise FuseOSError(EIO)
-    # Update cache.
-    if result['is_dir'] == True:
-      self.cache.pop(old)
-      self.cache.pop(new)
-    else:
-      self.cache.pop(old)
-      self.cache.pop(os.path.dirname(old))
-      self.cache.pop(os.path.dirname(new))
     if debug == True: appLog('debug', 'Successfully renamed object: ' + old)
     if debug_raw == True: appLog('debug', str(result))
+
+    # Remove outdated data from cache.
+    self.removeFromCache(os.path.dirname(old))
+    return 0
 
   # Read data from a filehandle.
   def read(self, path, length, offset, fh):
@@ -258,13 +258,13 @@ class Dropbox(Operations):
           if len(buf) >= write_cache or len(buf) < 4096: 
             if debug == True: appLog('debug', 'Cache exceeds configured write_cache. Uploading...')
             result = self.DropboxUploadChunk(buf, "", 0)
-            print "Uploaded: " + str(result)
-            print "Write bytes: " + str(len(buf))
             self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
 
             # Check if we've finished the upload.
             if len(buf) < 4096:
               result = self.DropboxUploadChunkFinish(path, result['upload_id'])
+              # Remove outdated data from cache.
+              self.removeFromCache(os.path.dirname(path))
           else:
             if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...') 
             self.openfh[fh] = {'upload_id':'', 'offset':0, 'buf':buf}
@@ -274,13 +274,13 @@ class Dropbox(Operations):
           if len(buf)+len(self.openfh[fh]['buf']) >= write_cache or len(buf) < 4096:
             if debug == True: appLog('debug', 'Cache exceeds configured write_cache. Uploading...')
             result = self.DropboxUploadChunk(self.openfh[fh]['buf']+buf, self.openfh[fh]['upload_id'], self.openfh[fh]['offset'])
-            print "Uploaded: " + str(result)
-            print "Write bytes: " + str(len(buf)+len(self.openfh[fh]['buf']))
             self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
 
             # Check if we've finished the upload.
             if len(buf) < 4096:
               result = self.DropboxUploadChunkFinish(path, result['upload_id'])
+              # Remove outdated data from cache.
+              self.removeFromCache(os.path.dirname(path))
           else:
             if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...')
             self.openfh[fh].update({'buf':self.openfh[fh]['buf']+buf})
@@ -314,8 +314,6 @@ class Dropbox(Operations):
     if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
     self.releaseFH(fh)
     if debug == True: appLog('debug', 'Released filehandle: ' + str(fh)) 
-    # Update cache.
-    self.cache.pop(os.path.dirname(path))    
     return 0
 
   # Truncate a file to overwrite it.
@@ -353,7 +351,7 @@ class Dropbox(Operations):
     now = int(time())
 
     # Check wether data exists for item.
-    item = self.getDropboxMetadata(path)
+    item = self.getDropboxMetadata(path.encode("utf-8"))
     if item == False:
       #raise FuseOSError(ENOENT)
       raise FuseOSError(ENOENT)
@@ -521,11 +519,10 @@ if __name__ == '__main__':
   except Exception, e:
     appLog('error', 'Could not write configuration file.', str(e))
 
-  # Everything went fine and we're authed against the Dropbix api.
+  # Everything went fine and we're authed against the Dropbox api.
   print "Welcome " + account_info['display_name']
   print "Space used: " + str(account_info['quota_info']['normal']/1024/1024/1024) + " GB"
   print "Space available: " + str(account_info['quota_info']['quota']/1024/1024/1024) + " GB"
   print ""
   print "Starting FUSE..."
   FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=True)
-
