@@ -5,6 +5,13 @@ To improve the browsing experience of your Dropbox content this plugin will cach
 the structure for a certain amount of time. There's still some work to do to improve
 the caching routine.
 
+=== Requirements ===
+There are some requirements which have to be fulfilled to make this plugin work.
+* FUSE has to be installed (http://fuse.sourceforge.net/).
+* Python pkg-resources must be installed. 
+* The user must have the permission to mount FUSE filesystems. On debian systems the user must belong to the group "fuse".
+ adduser <user> fuse
+
 === Authorize access ===
 Select the access mode and get the access token for your Dropbox account at:
 [http://api.schmidt.ps/authFUSEFilesystem4Dropbox http://api.schmidt.ps/authFUSEFilesystem4Dropbox]
