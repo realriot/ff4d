@@ -13,7 +13,7 @@ After validation an access token is displayed which you have to enter at the fir
 of this FUSE plugin. 
 
 ''As an alternative'' you can use the enclosed '''./getDropboxAccessToken.py''' script to fetch
-the token. But remember that you have to add an Dropbox application within
+the token. But remember for this case that you have to add an Dropbox application within
 the [https://www.dropbox.com/developers Dropbox Developer home] by yourself, too.
 
 '''Please secure you access token. NOBODY may know it! This token allows full access
