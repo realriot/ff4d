@@ -14,7 +14,7 @@ There are some requirements which have to be fulfilled to make this plugin work.
 
 === Authorize access ===
 Select the access mode and get the access token for your Dropbox account at:
-[http://api.schmidt.ps/authFUSEFilesystem4Dropbox http://api.schmidt.ps/authFUSEFilesystem4Dropbox]
+[https://tools.schmidt.ps/authFUSEFilesystem4Dropbox https://tools.schmidt.ps/authFUSEFilesystem4Dropbox]
 
 After validation an access token is displayed which you have to enter at the first runtime
 of this FUSE plugin. 
