@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # Copyright (c) 2014 Sascha Schmidt <sascha@schmidt.ps> (author)
+# http://blog.schmidt.ps
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -14,7 +15,6 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 # Error codes: http://docs.python.org/2/library/errno.html
-
 from __future__ import with_statement
 
 import os, sys, pwd, errno, dropbox
@@ -444,7 +444,7 @@ def appLog(mode, text, reason = ""):
 # Let the user authorize this application.
 def getAccessToken():
   print ""
-  print "1. Go to: 'http://api.schmidt.ps/authFUSEFilesystem4Dropbox'"
+  print "1. Go to: 'http://tools.schmidt.ps/authFUSEFilesystem4Dropbox'"
   print "2. Follow the instructions to generate an access token."
   print "   You can choose between full access (Dropbox mode) and"
   print "   jailed access (Sandbox mode)."
