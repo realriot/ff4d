@@ -26,8 +26,9 @@ from errno import *
 
 # DEBUG settings.
 debug = True
-debug_raw = True
+debug_raw = False 
 debug_unsupported = False 
+debug_fuse = False
 
 # Global variables.
 access_token = False
@@ -66,7 +67,7 @@ class Dropbox(Operations):
   def removeFromCache(self, path):
     if path in self.cache:
       item = self.cache[path]
-      if item['is_dir'] == True:
+      if item['is_dir'] == True and 'contents' in item:
         # Remove folder items from cache.
         for tmp in item['contents']:
           if debug == True: appLog('debug', 'Removing from cache: ' + tmp['path'].encode("utf-8"))
@@ -107,21 +108,24 @@ class Dropbox(Operations):
     return result
 
   # Get metadata for a file or folder from the Dropbox API or local cache.
-  def getDropboxMetadata(self, path):
+  def getDropboxMetadata(self, path, deep=False):
     # Metadata exists within cache.
     if path in self.cache:
       if debug == True: appLog('debug', 'Found cached metadata for: ' + path)
       item = self.cache[path]
 
       # Check whether this is a directory and if there any remote changes.
-      if item['is_dir'] == True and item['cachets']<int(time()):
+      if item['is_dir'] == True and item['cachets']<int(time()) or (deep == True and 'contents' not in item):
+        # Set temporary hash value for non-deep directory cache entry.
+        if deep == True and 'contents' not in item:
+          item['hash'] = '0' 
+        if debug == True: appLog('debug', 'DeepCheck: ' + str(deep))
         if debug == True: appLog('debug', 'cachets: ' + str(item['cachets']) + ' - ' + str(int(time())))
         if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path)
         try:
           item = client.metadata(path, True, 25000, item['hash'])
-          if 'is_deleted' in item:
-            if item['is_deleted'] == True:
-              return False
+          if 'is_deleted' in item and item['is_deleted'] == True:
+            return False
           if debug == True: appLog('debug', 'Remote endpoint signalizes changes. Updating local cache for folder: ' + path)
           if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
           if debug_raw == True: appLog('debug', str(item))
@@ -132,10 +136,9 @@ class Dropbox(Operations):
           self.cache[path] = item
           for tmp in item['contents']:
             if tmp['is_dir'] == False:
-              if 'is_deleted' in tmp:
-                if tmp['is_deleted'] == False:
-                  tmp.update({'cachets':cachets})
-                  self.cache[tmp['path'].encode("utf-8")] = tmp
+              if 'is_deleted' not in tmp or ('is_deleted' in tmp and tmp['is_deleted'] == False):
+                tmp.update({'cachets':cachets})
+                self.cache[tmp['path'].encode("utf-8")] = tmp
         except dropbox.rest.ErrorResponse, e:
           if debug == True: appLog('debug', 'No remote changes detected for folder: ' + path)
       return item
@@ -144,9 +147,8 @@ class Dropbox(Operations):
       if debug == True: appLog('debug', 'No cached metadata for: ' + path)
       try:
         item = client.metadata(path)
-        if 'is_deleted' in item:
-          if item['is_deleted'] == True:
-            return False
+        if 'is_deleted' in item and item['is_deleted'] == True:
+          return False
         if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
         if debug_raw == True: appLog('debug', str(item))
       except dropbox.rest.ErrorResponse, e:
@@ -163,11 +165,9 @@ class Dropbox(Operations):
       # Cache files if this item is a file.
       if item['is_dir'] == True:
         for tmp in item['contents']:
-          if tmp['is_dir'] == False:
-            if 'is_deleted' in tmp:
-              if tmp['is_deleted'] == False:
-                tmp.update({'cachets':cachets})
-                self.cache[tmp['path'].encode("utf-8")] = tmp
+          if 'is_deleted' not in tmp or ('is_deleted' in tmp and tmp['is_deleted'] == False):
+            tmp.update({'cachets':cachets})
+            self.cache[tmp['path'].encode("utf-8")] = tmp
       return item
 
   #########################
@@ -314,6 +314,10 @@ class Dropbox(Operations):
     if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
     self.releaseFH(fh)
     if debug == True: appLog('debug', 'Released filehandle: ' + str(fh)) 
+
+    # Remove outdated data from cache.
+    self.removeFromCache(os.path.dirname(path))
+
     return 0
 
   # Truncate a file to overwrite it.
@@ -327,7 +331,7 @@ class Dropbox(Operations):
 
     # Fetch folder informations.
     fusefolder = ['.', '..']
-    metadata = self.getDropboxMetadata(path)
+    metadata = self.getDropboxMetadata(path, True)
 
     # Loop through the Dropbox API reply to build fuse structure.
     for item in metadata['contents']:
@@ -365,11 +369,6 @@ class Dropbox(Operations):
 
     if item['is_dir'] == True: 
       # Get st_nlink count for directory.
-      dircount = 0
-      for content in item['contents']:
-        if content['is_dir'] == True:
-          dircount = dircount + 1
-      dircount = dircount + 2
       properties = dict(
         st_mode=S_IFDIR | 0444,
         st_size=0,
@@ -378,7 +377,7 @@ class Dropbox(Operations):
         st_atime=now,
         st_uid=uid,
         st_gid=gid,
-        st_nlink=dircount,
+        st_nlink=2
       )
       if debug == True: appLog('debug', 'Returning properties for directory: ' + path + ' (' + str(properties) + ')')
       return properties 
@@ -525,4 +524,4 @@ if __name__ == '__main__':
   print "Space available: " + str(account_info['quota_info']['quota']/1024/1024/1024) + " GB"
   print ""
   print "Starting FUSE..."
-  FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=True)
+  FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=True, debug=debug_fuse)
