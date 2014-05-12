@@ -17,7 +17,7 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, dropbox, urllib, urllib2, httplib
+import os, sys, pwd, errno, dropbox
 from time import time, mktime
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -254,26 +254,15 @@ class Dropbox(Operations):
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
         pass
 
-    if debug == True: appLog('debug', 'Reading ' + str(length) + ' bytes from source...')
-
     # Read from FH.
     rbytes = ''
     try:
       rbytes = self.openfh[fh].read(length)
-    except urllib2.HTTPError, e:
-      print "HTTP error: " + str(e.code)
-      raise FuseOSError(EIO)
-    except urllib2.URLError, e:
-      print "URL error: " + str(e.reason)
-      raise FuseOSError(EIO)
-    except httplib.HTTPException, e:
-      print "Unknown HTTP exception: " + str(e)
-      raise FuseOSError(EIO)
-    except Exception, e:
-      print "Unknown exception: " + str(e)
+    except:
+      appLog('error', 'Could not read data from remotefile: ' + path)
       raise FuseOSError(EIO)
 
-    if debug == True: appLog('debug', 'Read bytes: ' + str(len(rbytes)))
+    if debug == True: appLog('debug', 'Read bytes from remote source: ' + str(len(rbytes)))
     self.runfh[fh] = False
     return rbytes
 
