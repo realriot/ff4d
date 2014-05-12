@@ -17,7 +17,7 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, dropbox
+import os, sys, pwd, errno, dropbox, urllib, urllib2, httplib
 from time import time, mktime
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -43,6 +43,7 @@ class Dropbox(Operations):
     self.restclient = restclient
     self.cache = {}
     self.openfh = {}
+    self.runfh = {} 
 
   #####################
   # Helper functions. #
@@ -53,6 +54,7 @@ class Dropbox(Operations):
     for i in range(1,8193):
       if i not in self.openfh:
         self.openfh[i] = False
+        self.runfh[i] = False
         return i
     return False
 
@@ -60,6 +62,7 @@ class Dropbox(Operations):
   def releaseFH(self, fh):
     if fh in self.openfh:
       self.openfh.pop(fh)
+      self.runfh.pop(fh)
     else:
       return False
 
@@ -116,10 +119,10 @@ class Dropbox(Operations):
 
       # Check whether this is a directory and if there any remote changes.
       if item['is_dir'] == True and item['cachets']<int(time()) or (deep == True and 'contents' not in item):
-        # Set temporary hash value for non-deep directory cache entry.
+        # Set temporary hash value for directory non-deep cache entry.
         if deep == True and 'contents' not in item:
           item['hash'] = '0' 
-        if debug == True: appLog('debug', 'DeepCheck: ' + str(deep))
+        if debug == True: appLog('debug', 'Metadata directory deepcheck: ' + str(deep))
         if debug == True: appLog('debug', 'cachets: ' + str(item['cachets']) + ' - ' + str(int(time())))
         if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path)
         try:
@@ -129,6 +132,9 @@ class Dropbox(Operations):
           if debug == True: appLog('debug', 'Remote endpoint signalizes changes. Updating local cache for folder: ' + path)
           if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
           if debug_raw == True: appLog('debug', str(item))
+
+          # Remove outdated data from cache.
+          self.removeFromCache(path)
 
           # Cache new data.
           cachets = int(time())+cache_time
@@ -142,7 +148,7 @@ class Dropbox(Operations):
         except dropbox.rest.ErrorResponse, e:
           if debug == True: appLog('debug', 'No remote changes detected for folder: ' + path)
       return item
-    # No cached data found, do an Dropbox API to fetch the metadata.
+    # No cached data found, do an Dropbox API request to fetch the metadata.
     else:
       if debug == True: appLog('debug', 'No cached metadata for: ' + path)
       try:
@@ -231,20 +237,45 @@ class Dropbox(Operations):
 
   # Read data from a filehandle.
   def read(self, path, length, offset, fh):
+    # Wait while this function is not threadable.
+    while self.runfh[fh] == True:
+      pass
+
+    self.runfh[fh] = True
     if debug == True: appLog('debug', 'Called: read() - Path: ' + path + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
     if fh in self.openfh:
-      try:
-        f = client.get_file(path)
-        self.openfh[fh] = f
-      except dropbox.rest.ErrorResponse, e:
-        appLog('error', 'Could not open remote file: ' + path, e.error_msg)
-        raise FuseOSError(EIO) 
-    else:
-      raise FuseOSError(EIO)
+      if self.openfh[fh] == False:
+        try:
+          self.openfh[fh] = client.get_file(path)
+        except dropbox.rest.ErrorResponse, e:
+          appLog('error', 'Could not open remote file: ' + path, e.error_msg)
+          raise FuseOSError(EIO) 
+      else:
+        if debug == True: appLog('debug', 'FH handle for reading process already opened')
+        pass
 
     if debug == True: appLog('debug', 'Reading ' + str(length) + ' bytes from source...')
-    f = self.openfh[fh]
-    return f.read(length)
+
+    # Read from FH.
+    rbytes = ''
+    try:
+      rbytes = self.openfh[fh].read(length)
+    except urllib2.HTTPError, e:
+      print "HTTP error: " + str(e.code)
+      raise FuseOSError(EIO)
+    except urllib2.URLError, e:
+      print "URL error: " + str(e.reason)
+      raise FuseOSError(EIO)
+    except httplib.HTTPException, e:
+      print "Unknown HTTP exception: " + str(e)
+      raise FuseOSError(EIO)
+    except Exception, e:
+      print "Unknown exception: " + str(e)
+      raise FuseOSError(EIO)
+
+    if debug == True: appLog('debug', 'Read bytes: ' + str(len(rbytes)))
+    self.runfh[fh] = False
+    return rbytes
 
   # Write data to a filehandle.
   def write(self, path, buf, offset, fh):
@@ -277,10 +308,10 @@ class Dropbox(Operations):
             self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
 
             # Check if we've finished the upload.
-            if len(buf) < 4096:
-              result = self.DropboxUploadChunkFinish(path, result['upload_id'])
-              # Remove outdated data from cache.
-              self.removeFromCache(os.path.dirname(path))
+            #if len(buf) < 4096:
+            #  result = self.DropboxUploadChunkFinish(path, result['upload_id'])
+            #   # Remove outdated data from cache.
+            #  self.removeFromCache(os.path.dirname(path))
           else:
             if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...')
             self.openfh[fh].update({'buf':self.openfh[fh]['buf']+buf})
@@ -307,11 +338,21 @@ class Dropbox(Operations):
     now = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
     cachedfh = {'bytes':0, 'modified':now, 'path':path, 'is_dir':False}
     self.cache[path] = cachedfh
+
+    result = self.DropboxUploadChunk("", "", 0)
+    print "Created file: " + str(result)
+    self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
+
     return fh
 
   # Release (close) a filehandle.
   def release(self, path, fh):
     if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
+
+    # Check to finish Dropbox upload.
+    if 'upload_id' in self.openfh[fh]:
+      result = self.DropboxUploadChunkFinish(path, self.openfh[fh]['upload_id'])
+
     self.releaseFH(fh)
     if debug == True: appLog('debug', 'Released filehandle: ' + str(fh)) 
 
