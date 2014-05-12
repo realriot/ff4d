@@ -17,18 +17,12 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, dropbox
+import os, sys, pwd, errno, argparse, dropbox
 from time import time, mktime
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
 from fuse import FUSE, FuseOSError, Operations
 from errno import *
-
-# DEBUG settings.
-debug = True
-debug_raw = False 
-debug_unsupported = False 
-debug_fuse = False
 
 # Global variables.
 access_token = False
@@ -484,25 +478,50 @@ def getAccessToken():
 ##############
 # Main entry #
 ##############
+debug = False
+debug_raw = False
+debug_unsupported = False
+debug_fuse = False
 if __name__ == '__main__':
-  print "*****************************"
-  print "* FUSE Filesystem 4 Dropbox *"
-  print "*****************************"
-  print ""
+  print '********************************************************'
+  print '* FUSE Filesystem 4 Dropbox                            *'
+  print '*                                                      *'
+  print '* Copyright 2014                                       *'                  
+  print '* Sascha Schmidt <sascha@schmidt.ps>                   *'
+  print '*                                                      *'
+  print '* https://github.com/realriot/ff4d/blob/master/LICENSE *'
+  print '********************************************************'
+  print ''
 
-  # Handle arguments.
-  if len(sys.argv) < 2 or len(sys.argv) > 3:
-    print "Wrong syntax:"
-    print "./ff4d <mount point> [access token]"
-    sys.exit(-1)
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-d', '--debug', help='Show debug output', action='store_true', default=False)
+  parser.add_argument('-dr', '--debug-raw', help='Show raw debug output', action='store_true', default=False)
+  parser.add_argument('-du', '--debug-unsupported', help='Show calls of unsupported functions', action='store_true', default=False)
+  parser.add_argument('-df', '--debug-fuse', help='Show FUSE debug output', action='store_true', default=False)
+
+  # Mutual exclusion of arguments. 
+  atgroup = parser.add_mutually_exclusive_group()
+  atgroup.add_argument('-ap', '--access-token-perm', help='Use this access token permanently (will be saved)', default=False)
+  atgroup.add_argument('-at', '--access-token-temp', help='Use this access token only temporarily (will not be saved)', default=False)
+
+  parser.add_argument('-bg', '--background', help='Pushes FF4D into background mode', action='store_false', default=True)
+  
+  parser.add_argument('mountpoint', help='Mount point for Dropbox source')
+  args = parser.parse_args()
+
+  # Set DEBUG settings supplied by commandline.
+  debug = args.debug
+  debug_raw = args.debug_raw
+  debug_unsupported = args.debug_unsupported
+  debug_fuse = args.debug_fuse
 
   # Check wether the mountpoint is a valid directory.
-  mountpoint = sys.argv[1]
+  mountpoint = args.mountpoint
   if not os.path.isdir(mountpoint):
     appLog('error', 'Given mountpoint is not a directory.')
     sys.exit(-1)
 
-  # First of all check for an existing configuration file.
+  # Check for an existing configuration file.
   try:
     scriptpath = os.path.dirname(sys.argv[0])
     f = open(scriptpath + '/ff4d.config', 'r')
@@ -512,12 +531,15 @@ if __name__ == '__main__':
     pass
 
   # Check wether the user gave an Dropbox access_token as argument.
-  if len(sys.argv) == 3:
-    access_token = sys.argv[2]
-    if debug == True: appLog('debug', 'Got accesstoken from command line: ' + access_token)
+  if args.access_token_perm != False:
+    if debug == True: appLog('debug', 'Got permanent accesstoken from command line: ' + args.access_token_perm)
+    access_token = args.access_token_perm
+  if args.access_token_temp != False:
+    if debug == True: appLog('debug', 'Got temporary accesstoken from command line: ' + args.access_token_temp)
+    access_token = args.access_token_temp
 
   # Check the need to fetch a new access_token.
-  if len(sys.argv) == 2 and access_token == False:
+  if access_token == False:
     appLog('info', 'No accesstoken available. Fetching a new one.')
     access_token = getAccessToken()
     if debug == True: appLog('debug', 'Got accesstoken from user input: ' + access_token)
@@ -538,15 +560,16 @@ if __name__ == '__main__':
     sys.exit(-1)
 
   # Save valid access token to configuration file.
-  try:
-    scriptpath = os.path.dirname(sys.argv[0])
-    f = open(scriptpath + '/ff4d.config', 'w')
-    f.write(access_token)
-    f.close()
-    os.chmod(scriptpath + '/ff4d.config', 0600)
-    if debug == True: appLog('debug', 'Wrote accesstoken to configuration file.\n')
-  except Exception, e:
-    appLog('error', 'Could not write configuration file.', str(e))
+  if args.access_token_temp == False:
+    try:
+      scriptpath = os.path.dirname(sys.argv[0])
+      f = open(scriptpath + '/ff4d.config', 'w')
+      f.write(access_token)
+      f.close()
+      os.chmod(scriptpath + '/ff4d.config', 0600)
+      if debug == True: appLog('debug', 'Wrote accesstoken to configuration file.\n')
+    except Exception, e:
+      appLog('error', 'Could not write configuration file.', str(e))
 
   # Everything went fine and we're authed against the Dropbox api.
   print "Welcome " + account_info['display_name']
@@ -554,4 +577,8 @@ if __name__ == '__main__':
   print "Space available: " + str(account_info['quota_info']['quota']/1024/1024/1024) + " GB"
   print ""
   print "Starting FUSE..."
-  FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=True, debug=debug_fuse)
+  try:
+    FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=args.background, debug=debug_fuse)
+  except:
+    appLog('error', 'Failed to start FUSE...')
+    sys.exit(-1)
