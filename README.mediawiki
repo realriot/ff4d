@@ -5,6 +5,22 @@ To improve the browsing experience of your Dropbox content this plugin will cach
 the structure for a certain amount of time. There's still some work to do to improve
 the caching routine.
 
+=== Donation ===
+Since I'm developing in my free time I'd like to ask you to support my work.
+You can do it by contributing 5 EUR via paypal. This will give me motivation
+to keep on coding and fixing bugs.
+
+Thanks in advance
+
+<script src="https://www.paypalobjects.com/js/external/paypal-button.min.js?merchant=realriot@realriot.de" 
+    data-button="donate" 
+    data-name="GitHub - FF4D" 
+    data-quantity="1" 
+    data-amount="5.00" 
+    data-currency="EUR" 
+    data-callback="https://github.com/realriot/ff4d"
+></script>
+
 === Requirements ===
 There are some requirements which have to be fulfilled to make this plugin work.
 * FUSE has to be installed (http://fuse.sourceforge.net/).
