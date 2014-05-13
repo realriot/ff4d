@@ -24,11 +24,6 @@ from stat import S_IFDIR, S_IFLNK, S_IFREG
 from fuse import FUSE, FuseOSError, Operations
 from errno import *
 
-# Global variables.
-access_token = False
-cache_time = 120 # Seconds
-write_cache = 4194304 # Bytes
-
 # FUSE Class to handle operations.
 class Dropbox(Operations):
   def __init__(self, access_token, client, restclient):
@@ -117,6 +112,7 @@ class Dropbox(Operations):
         if deep == True and 'contents' not in item:
           item['hash'] = '0' 
         if debug == True: appLog('debug', 'Metadata directory deepcheck: ' + str(deep))
+        if debug == True: appLog('debug', 'Cache expired for: ' + path)
         if debug == True: appLog('debug', 'cachets: ' + str(item['cachets']) + ' - ' + str(int(time())))
         if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path)
         try:
@@ -158,7 +154,7 @@ class Dropbox(Operations):
         else:
           raise FuseOSError(EREMOTEIO)
 
-      # Cache metadata.
+      # Cache metadata if user wants to use the cache.
       cachets = int(time())+cache_time
       item.update({'cachets':cachets})
       self.cache[path] = item
@@ -478,6 +474,11 @@ def getAccessToken():
 ##############
 # Main entry #
 ##############
+# Global variables.
+access_token = False
+cache_time = 120 # Seconds
+write_cache = 4194304 # Bytes
+use_cache = False
 debug = False
 debug_raw = False
 debug_unsupported = False
@@ -504,12 +505,14 @@ if __name__ == '__main__':
   atgroup.add_argument('-ap', '--access-token-perm', help='Use this access token permanently (will be saved)', default=False)
   atgroup.add_argument('-at', '--access-token-temp', help='Use this access token only temporarily (will not be saved)', default=False)
 
+  parser.add_argument('-ct', '--cache-time', help='Cache Dropbox data for X seconds (120 by default)', default=120, type=int)
   parser.add_argument('-bg', '--background', help='Pushes FF4D into background mode', action='store_false', default=True)
   
   parser.add_argument('mountpoint', help='Mount point for Dropbox source')
   args = parser.parse_args()
 
-  # Set DEBUG settings supplied by commandline.
+  # Set variables supplied by commandline.
+  cache_time = args.cache_time
   debug = args.debug
   debug_raw = args.debug_raw
   debug_unsupported = args.debug_unsupported
