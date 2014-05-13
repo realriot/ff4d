@@ -391,7 +391,7 @@ class Dropbox(Operations):
     if item['is_dir'] == True: 
       # Get st_nlink count for directory.
       properties = dict(
-        st_mode=S_IFDIR | 0444,
+        st_mode=S_IFDIR | 0755,
         st_size=0,
         st_ctime=modified,
         st_mtime=modified,
@@ -404,7 +404,7 @@ class Dropbox(Operations):
       return properties 
     else:
       properties = dict(
-        st_mode=S_IFREG | 0444,
+        st_mode=S_IFREG | 0755,
         st_size=item['bytes'],
         st_ctime=modified,
         st_mtime=modified,
@@ -559,6 +559,8 @@ access_token = False
 cache_time = 120 # Seconds
 write_cache = 4194304 # Bytes
 use_cache = False
+allow_other = False
+allow_root = False
 debug = False
 debug_raw = False
 debug_unsupported = False
@@ -585,6 +587,8 @@ if __name__ == '__main__':
   atgroup.add_argument('-ap', '--access-token-perm', help='Use this access token permanently (will be saved)', default=False)
   atgroup.add_argument('-at', '--access-token-temp', help='Use this access token only temporarily (will not be saved)', default=False)
 
+  parser.add_argument('-ao', '--allow-other', help='Allow other users to access this FUSE filesystem', action='store_true', default=False)
+  parser.add_argument('-ar', '--allow-root', help='Allow root to access this FUSE filesystem', action='store_true', default=False)
   parser.add_argument('-ct', '--cache-time', help='Cache Dropbox data for X seconds (120 by default)', default=120, type=int)
   parser.add_argument('-wc', '--write-cache', help='Cache X bytes (chunk size) before uploading to Dropbox (4 MB by default)', default=4194304, type=int)
   parser.add_argument('-bg', '--background', help='Pushes FF4D into background', action='store_false', default=True)
@@ -595,6 +599,8 @@ if __name__ == '__main__':
   # Set variables supplied by commandline.
   cache_time = args.cache_time
   write_cache = args.write_cache
+  allow_other = args.allow_other
+  allow_root = args.allow_root
   debug = args.debug
   debug_raw = args.debug_raw
   debug_unsupported = args.debug_unsupported
@@ -671,7 +677,7 @@ if __name__ == '__main__':
   print ""
   print "Starting FUSE..."
   try:
-    FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=args.background, debug=debug_fuse)
+    FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=args.background, debug=debug_fuse, allow_other=allow_other, allow_root=allow_root)
   except:
     appLog('error', 'Failed to start FUSE...')
     sys.exit(-1)
