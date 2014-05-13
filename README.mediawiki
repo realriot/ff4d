@@ -12,7 +12,7 @@ to keep on coding and fixing bugs.
 
 Thanks in advance
 
-[[Image:https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif|link=https://www.paypal.com/cgi-bin/webscr?no_note=0&lc=US&business=realriot%40realriot.de&item_name=GitHub+-+FUSE+Filesystem+4+Dropbox&cmd=_donations&currency_code=USD DONATE]]
+[[Image:https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif]https://www.paypal.com/cgi-bin/webscr?no_note=0&lc=US&business=realriot%40realriot.de&item_name=GitHub+-+FUSE+Filesystem+4+Dropbox&cmd=_donations&currency_code=USD DONATE]]
 
 === Requirements ===
 There are some requirements which have to be fulfilled to make this plugin work.
