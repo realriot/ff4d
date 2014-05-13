@@ -333,7 +333,7 @@ class Dropbox(Operations):
     if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
 
     # Check to finish Dropbox upload.
-    if 'upload_id' in self.openfh[fh]:
+    if type(self.openfh[fh]) is dict and 'upload_id' in self.openfh[fh]:
       result = self.DropboxUploadChunkFinish(path, self.openfh[fh]['upload_id'])
 
     self.releaseFH(fh)
@@ -369,7 +369,7 @@ class Dropbox(Operations):
 
   # Get properties for a directory or file.
   def getattr(self, path, fh=None):
-    if debug == True: appLog('debug', 'Called: getattr() - Path: ' + path)
+    if debug == True: appLog('debug', 'Called: getattr() - Path: ' + path.encode("utf-8"))
 
     # Get userid and groupid for current user.
     uid = pwd.getpwuid(os.getuid()).pw_uid
@@ -403,7 +403,7 @@ class Dropbox(Operations):
         st_gid=gid,
         st_nlink=2
       )
-      if debug == True: appLog('debug', 'Returning properties for directory: ' + path + ' (' + str(properties) + ')')
+      if debug == True: appLog('debug', 'Returning properties for directory: ' + path.encode("utf-8") + ' (' + str(properties) + ')')
       return properties 
     else:
       properties = dict(
@@ -416,7 +416,7 @@ class Dropbox(Operations):
         st_gid=gid,
         st_nlink=1,
       )
-      if debug == True: appLog('debug', 'Returning properties for file: ' + path + ' (' + str(properties) + ')')
+      if debug == True: appLog('debug', 'Returning properties for file: ' + path.encode("utf-8") + ' (' + str(properties) + ')')
       return properties 
 
   ########################################
