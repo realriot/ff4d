@@ -17,8 +17,9 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, argparse, dropbox
-from time import time, mktime
+import os, sys, pwd, errno, argparse, requests, dropbox
+import simplejson as json
+from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
 from fuse import FUSE, FuseOSError, Operations
@@ -449,6 +450,49 @@ class Dropbox(Operations):
     if debug_unsupported == True: appLog('debug', 'Called: fsync() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
 
+# apiAuth class.
+class apiAuth:
+  def __init__(self):
+    self.access_token = False
+    if debug == True: appLog('debug', 'Initialzed apiAuth')
+
+  # Get code for polling.
+  def getCode(self, provider, appkey):
+    if debug == True: appLog('debug', 'Trying to fetch apiAuth code: ' + provider + ' ' + appkey)
+    try:
+      payload = {'get_code': '', 'provider': provider, 'appkey': appkey}
+      r = requests.get("https://tools.schmidt.ps/authApp", params=payload)
+      data = json.loads(r.text)
+    except:
+      if debug == True: appLog('debug', 'Failed to fetch apiAuth code')
+      return False
+
+    if 'error' in data:
+      if debug == True: appLog('debug', 'Error in reply of apiAuth code-request')
+      return False
+
+    if debug == True: appLog('debug', 'Got valid apiAuth code: ' + str(data['code']))
+    return data['code']
+
+  # Poll code and wait for result.
+  def pollCode(self, code):
+    loop = True
+    print "Waiting for authorization..."
+    while loop == True:
+      payload = {'poll_code': code}
+      r = requests.get("https://tools.schmidt.ps/authApp", params=payload)
+      data = json.loads(r.text)
+
+      if 'error' in data:
+        return False
+
+      if data['state'] == 'invalid':
+        return None
+      if data['state'] == 'valid':
+        return data['authkey']
+      sleep(1)
+    return False
+
 #####################
 # Global functions. #
 #####################
@@ -462,14 +506,50 @@ def appLog(mode, text, reason = ""):
 
 # Let the user authorize this application.
 def getAccessToken():
+  dropbox_appkey = "fg7v60fm9f5ud7n"
+  sandbox_appkey = "nstd2c6lbyj4z9b"
+  
   print ""
-  print "1. Go to: 'http://tools.schmidt.ps/authFUSEFilesystem4Dropbox'"
-  print "2. Follow the instructions to generate an access token."
-  print "   You can choose between full access (Dropbox mode) and"
-  print "   jailed access (Sandbox mode)."
-  access_token = raw_input("3. Enter the access token: ").strip()
+  print "Please choose which permission this application will request:"
+  print "Enter 'd' - This application will have access to your whole"
+  print "            Dropbox."
+  print "Enter 's' - This application will just have access to its"
+  print "            own application folder."
+  print ""
+  validinput = False
+  while validinput == False:
+    perm = raw_input("Please enter permission key: ").strip() 
+    if perm.lower() == 'd' or perm.lower() == 's':
+      validinput = True
 
-  return access_token
+  appkey = ""
+  if perm.lower() == 'd':
+    appkey = "fg7v60fm9f5ud7n"
+  if perm.lower() == 's':
+    appkey = "nstd2c6lbyj4z9b"
+
+  aa = apiAuth()
+  code = aa.getCode('dropbox', appkey)
+  if code != False:
+    print ""
+    print "Please visit http://tools.schmidt.ps/authApp and use the following"
+    print "code to authorize this application: " + str(code)
+    print ""
+
+    authkey = aa.pollCode(code)
+    if authkey != False and authkey != None:
+      print "Thanks for granting permission\n"
+      return authkey
+
+    if authkey == None:
+      print "Rejected permission"
+
+    if authkey == False:
+     print "Authorization request expired"
+  else:
+    print "Failed to start authorization process"
+
+  return False
 
 ##############
 # Main entry #
@@ -507,7 +587,7 @@ if __name__ == '__main__':
 
   parser.add_argument('-ct', '--cache-time', help='Cache Dropbox data for X seconds (120 by default)', default=120, type=int)
   parser.add_argument('-wc', '--write-cache', help='Cache X bytes (chunk size) before uploading to Dropbox (4 MB by default)', default=4194304, type=int)
-  parser.add_argument('-bg', '--background', help='Pushes FF4D into background mode', action='store_false', default=True)
+  parser.add_argument('-bg', '--background', help='Pushes FF4D into background', action='store_false', default=True)
   
   parser.add_argument('mountpoint', help='Mount point for Dropbox source')
   args = parser.parse_args()
@@ -559,7 +639,7 @@ if __name__ == '__main__':
 
   # Check wether an access_token exists.
   if access_token == False:
-    appLog('error', 'No valid accesstoken present. Exiting.')
+    appLog('error', 'No valid accesstoken available. Exiting.')
     sys.exit(-1)
 
   # Validate access_token.
