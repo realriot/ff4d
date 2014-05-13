@@ -22,11 +22,11 @@ There are some requirements which have to be fulfilled to make this plugin work.
  adduser <user> fuse
 
 === Authorize access ===
-Running FF4D for the first time without providing an access token, the script will guide you through a
-authorization process where you can choose which permission you'll grant this application.
+Running '''FF4D''' for the first time without providing an access token, the script will guide you through a
+authorization process where you can choose which permission you'll grant to this application.
 
-You'll be advised to go to [https://tools.schmidt.ps/authApp] and enter the code this application
-gave you. 
+You'll be advised to go to [https://tools.schmidt.ps/authApp] and enter the code, which this application
+gave to you.
 
 ''As an alternative'' you can use the enclosed '''./getDropboxAccessToken.py''' script to fetch
 the token. But remember for this case that you have to add an Dropbox application within
