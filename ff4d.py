@@ -506,6 +506,7 @@ if __name__ == '__main__':
   atgroup.add_argument('-at', '--access-token-temp', help='Use this access token only temporarily (will not be saved)', default=False)
 
   parser.add_argument('-ct', '--cache-time', help='Cache Dropbox data for X seconds (120 by default)', default=120, type=int)
+  parser.add_argument('-wc', '--write-cache', help='Cache X bytes (chunk size) before uploading to Dropbox (4 MB by default)', default=4194304, type=int)
   parser.add_argument('-bg', '--background', help='Pushes FF4D into background mode', action='store_false', default=True)
   
   parser.add_argument('mountpoint', help='Mount point for Dropbox source')
@@ -513,10 +514,19 @@ if __name__ == '__main__':
 
   # Set variables supplied by commandline.
   cache_time = args.cache_time
+  write_cache = args.write_cache
   debug = args.debug
   debug_raw = args.debug_raw
   debug_unsupported = args.debug_unsupported
   debug_fuse = args.debug_fuse
+
+  # Check ranges and values of given arguments.
+  if cache_time < 0:
+    appLog('error', 'Only positive values for cache-time are possible')
+    sys.exit(-1)
+  if write_cache < 4096:
+    appLog('error', 'The minimum write-cache has a size of 4096 Bytes')
+    sys.exit(-1)
 
   # Check wether the mountpoint is a valid directory.
   mountpoint = args.mountpoint
