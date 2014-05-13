@@ -677,7 +677,7 @@ if __name__ == '__main__':
   print ""
   print "Starting FUSE..."
   try:
-    FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=args.background, debug=debug_fuse, allow_other=allow_other, allow_root=allow_root)
+    FUSE(Dropbox(access_token, client, restclient), mountpoint, foreground=args.background, debug=debug_fuse, sync_read=True, allow_other=allow_other, allow_root=allow_root)
   except:
     appLog('error', 'Failed to start FUSE...')
     sys.exit(-1)
