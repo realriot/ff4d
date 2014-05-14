@@ -17,7 +17,7 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, argparse, requests, dropbox
+import os, sys, pwd, errno, argparse, requests, urllib, urllib2, dropbox
 import simplejson as json
 from time import time, mktime, sleep
 from datetime import datetime
@@ -39,11 +39,42 @@ class Dropbox(Operations):
   # Helper functions. #
   #####################
 
+  # Translate system mode to flag.
+  def modeToFlag(self, mode):
+    flagline = ""
+    modes = {
+      'O_RDONLY'      : os.O_RDONLY,
+      'O_WRONLY'      : os.O_WRONLY,
+      'O_RDWR'        : os.O_RDWR,
+      'O_NONBLOCK'    : os.O_NONBLOCK,
+      'O_APPEND'      : os.O_APPEND,
+      'O_CREAT'       : os.O_CREAT,
+      'O_TRUNC'       : os.O_TRUNC,
+      'O_EXCL'        : os.O_EXCL,
+      'O_DIRECT'      : os.O_DIRECT,
+      'O_NOFOLLOW'    : os.O_NOFOLLOW,
+      'O_DSYNC'       : os.O_DSYNC,
+      'O_RSYNC'       : os.O_RSYNC,
+      'O_SYNC'        : os.O_SYNC,
+      'O_NDELAY'      : os.O_NDELAY,
+      'O_NOCTTY'      : os.O_NOCTTY,
+      'O_ASYNC'       : os.O_ASYNC,
+      'O_DIRECT'      : os.O_DIRECT,
+      'O_DIRECTORY'   : os.O_DIRECTORY,
+      'O_NOFOLLOW'    : os.O_NOFOLLOW,
+      'O_NOATIME'     : os.O_NOATIME
+    }
+
+    for key in modes:
+      if modes[key] & mode:
+        flagline = flagline + key + "|"
+    return flagline.rstrip('|')
+
   # Get a valid and unique filehandle.
   def getFH(self):
     for i in range(1,8193):
       if i not in self.openfh:
-        self.openfh[i] = False
+        self.openfh[i] = {'f' : False, 'lock' : False}
         self.runfh[i] = False
         return i
     return False
@@ -56,19 +87,63 @@ class Dropbox(Operations):
     else:
       return False
 
+  # Get filehandle of remote file supporting the seek method.
+  def getDropboxRemoteFilehandle(self, path, seek=False):
+    user_agent = "OfficialDropboxPythonSDK/2.0.0"
+    headers = {'Authorization' : 'Bearer ' + access_token,
+               'User-Agent'    : user_agent}
+    url = 'https://api-content.dropbox.com/1/files/auto'
+
+    # Seek range on remote webserver.
+    if seek != False:
+      print "Seeking: " + str(seek)
+      headers['Range'] = 'bytes=' + str(seek) + '-'
+
+    try:
+      req = urllib2.Request(url + path, None, headers)
+      response = urllib2.urlopen(req)
+      return response
+    except urllib2.HTTPError, e:
+      appLog('error', 'Could not read remote file. HTTPError ' + str(e.code))
+      raise FuseOSError(EREMOTEIO)
+    except urllib2.URLError, e:
+      appLog('error', 'Could not read remote file. URLError' + str(e.reason))
+      raise FuseOSError(EREMOTEIO)
+    except httplib.HTTPException, e:
+      appLog('error', 'Could not read remote file (HTTPException)')
+      raise FuseOSError(EREMOTEIO)
+    except Exception:
+      appLog('error', 'Could not read remote file (unknown exception)')
+      raise FuseOSError(EREMOTEIO)
+    return False
+
   # Remove item from cache.
   def removeFromCache(self, path):
+    if debug == True: appLog('debug', 'Called removeFromCache() Path: ' + path)
+
+    # Check whether this path exists within cache.
     if path in self.cache:
       item = self.cache[path]
+
+      # If this is a directory, remove all childs.
       if item['is_dir'] == True and 'contents' in item:
         # Remove folder items from cache.
+        if debug == True: appLog('debug', 'Removing childs of path from cache')
         for tmp in item['contents']:
           if debug == True: appLog('debug', 'Removing from cache: ' + tmp['path'].encode("utf-8"))
           if tmp['path'].encode("utf-8") in self.cache:
             self.cache.pop(tmp['path'].encode("utf-8"))
-      if debug == True: appLog('debug', 'Removing from cache: ' + path) 
+      else:
+        if os.path.dirname(path) in self.cache:
+          if self.cache[os.path.dirname(path)]['is_dir'] == True: 
+            if debug == True: appLog('debug', 'Removing parent path from file in cache')
+            self.cache.pop(os.path.dirname(path))
+      if debug == True: appLog('debug', 'Removing from cache: ' + path)
       self.cache.pop(path)
-    return True
+      return True
+    else:
+      if debug == True: appLog('debug', 'Path not in cache: ' + path)
+      return False
 
   # Upload data to Dropbox via RESTClient.
   def DropboxUploadChunk(self, data, upload_id = "", offset = 0):
@@ -88,6 +163,7 @@ class Dropbox(Operations):
 
   # Finish upload of chuncked data to Dropbox.
   def DropboxUploadChunkFinish(self, path, upload_id):
+    if debug == True: appLog('debug', 'Finishing Dropbox upload: ' + upload_id + ' for path: ' + path) 
     headers = { "Authorization" : "Bearer " + access_token }
     post_params = { 'overwrite':True, 'upload_id':upload_id }
     result = restclient.request(
@@ -200,6 +276,11 @@ class Dropbox(Operations):
   # Remove a file.
   def unlink(self, path):
     if debug == True: appLog('debug', 'Called: unlink() - Path: ' + path)
+
+    # Remove data from cache.
+    self.removeFromCache(path)
+
+    # Delete file.
     try:
       client.file_delete(path)
     except dropbox.rest.ErrorResponse, e:
@@ -207,8 +288,6 @@ class Dropbox(Operations):
       raise FuseOSError(EIO)
     if debug == True: appLog('debug', 'Successfully deleted file: ' + path)
 
-    # Remove outdated data from cache.
-    self.removeFromCache(os.path.dirname(path))
     return 0
 
   # Rename a file or directory.
@@ -223,21 +302,22 @@ class Dropbox(Operations):
     if debug_raw == True: appLog('debug', str(result))
 
     # Remove outdated data from cache.
-    self.removeFromCache(os.path.dirname(old))
+    self.removeFromCache(old)
     return 0
 
-  # Read data from a filehandle.
+  # Read data from a remote filehandle.
   def read(self, path, length, offset, fh):
     # Wait while this function is not threadable.
-    while self.runfh[fh] == True:
+    while self.openfh[fh]['lock'] == True:
       pass
 
     self.runfh[fh] = True
     if debug == True: appLog('debug', 'Called: read() - Path: ' + path + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
     if fh in self.openfh:
-      if self.openfh[fh] == False:
+      if self.openfh[fh]['f'] == False:
         try:
-          self.openfh[fh] = client.get_file(path)
+          #self.openfh[fh] = client.get_file(path)
+          self.openfh[fh]['f'] = self.getDropboxRemoteFilehandle(path)
         except dropbox.rest.ErrorResponse, e:
           appLog('error', 'Could not open remote file: ' + path, e.error_msg)
           raise FuseOSError(EIO) 
@@ -248,12 +328,13 @@ class Dropbox(Operations):
     # Read from FH.
     rbytes = ''
     try:
-      rbytes = self.openfh[fh].read(length)
+      rbytes = self.openfh[fh]['f'].read(length)
     except:
       appLog('error', 'Could not read data from remotefile: ' + path)
       raise FuseOSError(EIO)
 
     if debug == True: appLog('debug', 'Read bytes from remote source: ' + str(len(rbytes)))
+    self.openfh[fh]['lock'] = False
     self.runfh[fh] = False
     return rbytes
 
@@ -263,38 +344,38 @@ class Dropbox(Operations):
     try:
       # Check for the beginning of the file.
       if fh in self.openfh:
-        if self.openfh[fh] == False: 
+        if self.openfh[fh]['f'] == False: 
           if debug == True: appLog('debug', 'Uploading first chunk to Dropbox...')
           # Check if the write request exceeds the maximum buffer size.
           if len(buf) >= write_cache or len(buf) < 4096: 
             if debug == True: appLog('debug', 'Cache exceeds configured write_cache. Uploading...')
             result = self.DropboxUploadChunk(buf, "", 0)
-            self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
-
-            # Check if we've finished the upload.
-            if len(buf) < 4096:
-              result = self.DropboxUploadChunkFinish(path, result['upload_id'])
-              # Remove outdated data from cache.
-              self.removeFromCache(os.path.dirname(path))
-          else:
-            if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...') 
-            self.openfh[fh] = {'upload_id':'', 'offset':0, 'buf':buf}
-          return len(buf) 
-        else:
-          if debug == True: appLog('debug', 'Uploading another chunk to Dropbox...')
-          if len(buf)+len(self.openfh[fh]['buf']) >= write_cache or len(buf) < 4096:
-            if debug == True: appLog('debug', 'Cache exceeds configured write_cache. Uploading...')
-            result = self.DropboxUploadChunk(self.openfh[fh]['buf']+buf, self.openfh[fh]['upload_id'], self.openfh[fh]['offset'])
-            self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
+            self.openfh[fh]['f'] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
 
             # Check if we've finished the upload.
             #if len(buf) < 4096:
             #  result = self.DropboxUploadChunkFinish(path, result['upload_id'])
-            #   # Remove outdated data from cache.
+            #  # Remove outdated data from cache.
             #  self.removeFromCache(os.path.dirname(path))
           else:
             if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...')
-            self.openfh[fh].update({'buf':self.openfh[fh]['buf']+buf})
+            self.openfh[fh]['f'] = {'upload_id':'', 'offset':0, 'buf':buf}
+          return len(buf) 
+        else:
+          if debug == True: appLog('debug', 'Uploading another chunk to Dropbox...')
+          if len(buf)+len(self.openfh[fh]['f']['buf']) >= write_cache or len(buf) < 4096:
+            if debug == True: appLog('debug', 'Cache exceeds configured write_cache. Uploading...')
+            result = self.DropboxUploadChunk(self.openfh[fh]['f']['buf']+buf, self.openfh[fh]['f']['upload_id'], self.openfh[fh]['f']['offset'])
+            self.openfh[fh]['f'] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
+
+            # Check if we've finished the upload.
+            #if len(buf) < 4096:
+            #  result = self.DropboxUploadChunkFinish(path, result['upload_id'])
+            #  # Remove outdated data from cache.
+            #  self.removeFromCache(os.path.dirname(path))
+          else:
+            if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...')
+            self.openfh[fh]['f'].update({'buf':self.openfh[fh]['f']['buf']+buf})
           return len(buf) 
       else:
         raise FuseOSError(EIO) 
@@ -305,6 +386,14 @@ class Dropbox(Operations):
   # Open a filehandle.
   def open(self, path, flags):
     if debug == True: appLog('debug', 'Called: open() - Path: ' + path + ' Flags: ' + str(flags))
+    flagline = self.modeToFlag(flags)
+    if debug == True: appLog('debug', 'Opening file with flags: ' + flagline)
+
+    # Validate flags.
+    if flags & os.O_APPEND:
+      if debug == True: appLog('debug', 'O_APPEND mode not supported for open()') 
+      raise FuseOSError(EOPNOTSUPP)
+
     fh = self.getFH()
     if debug == True: appLog('debug', 'Returning unique filehandle: ' + str(fh))
     return fh
@@ -312,6 +401,9 @@ class Dropbox(Operations):
   # Create a file.
   def create(self, path, mode):
     if debug == True: appLog('debug', 'Called: create() - Path: ' + path + ' Mode: ' + str(mode))
+    flagline = self.modeToFlag(mode)
+    if debug == True: appLog('debug', 'Creating file with flags: ' + flagline)
+
     fh = self.getFH()
     if debug == True: appLog('debug', 'Returning unique filehandle: ' + str(fh))
 
@@ -319,9 +411,9 @@ class Dropbox(Operations):
     cachedfh = {'bytes':0, 'modified':now, 'path':path, 'is_dir':False}
     self.cache[path] = cachedfh
 
-    result = self.DropboxUploadChunk("", "", 0)
-    print "Created file: " + str(result)
-    self.openfh[fh] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
+    #result = self.DropboxUploadChunk("", "", 0)
+    #if debug == True: appLog('debug', 'Created file: ' + str(result))
+    #self.openfh[fh]['f'] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
 
     return fh
 
@@ -330,8 +422,13 @@ class Dropbox(Operations):
     if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
 
     # Check to finish Dropbox upload.
-    if type(self.openfh[fh]) is dict and 'upload_id' in self.openfh[fh]:
-      result = self.DropboxUploadChunkFinish(path, self.openfh[fh]['upload_id'])
+    if type(self.openfh[fh]['f']) is dict and 'upload_id' in self.openfh[fh]['f'] and self.openfh[fh]['f']['upload_id'] != "":
+      # Flush still existing data in buffer.
+      if self.openfh[fh]['f']['buf'] != "":
+        if debug == True: appLog('debug', 'Flushing write buffer to Dropbox')
+        result = self.DropboxUploadChunk(self.openfh[fh]['f']['buf'], self.openfh[fh]['f']['upload_id'], self.openfh[fh]['f']['offset'])
+      if debug == True: appLog('debug', 'Finishing upload to Dropbox')
+      result = self.DropboxUploadChunkFinish(path, self.openfh[fh]['f']['upload_id'])
 
     self.releaseFH(fh)
     if debug == True: appLog('debug', 'Released filehandle: ' + str(fh)) 
@@ -343,7 +440,7 @@ class Dropbox(Operations):
 
   # Truncate a file to overwrite it.
   def truncate(self, path, length, fh=None):
-    if debug == True: appLog('debug', 'Called: truncate() - Path: ' + path)
+    if debug == True: appLog('debug', 'Called: truncate() - Path: ' + path + " Size: " + str(length))
     return 0
 
   # List the content of a directory.
@@ -416,6 +513,10 @@ class Dropbox(Operations):
       if debug == True: appLog('debug', 'Returning properties for file: ' + path.encode("utf-8") + ' (' + str(properties) + ')')
       return properties 
 
+  # Flush filesystem cache. Always true in this case.
+  def fsync(self, path, fdatasync, fh):
+    if debug == True: appLog('debug', 'Called: fsync() - Path: ' + path)
+
   ########################################
   # Not supported by transport endpoint. #
   ########################################
@@ -445,9 +546,6 @@ class Dropbox(Operations):
     raise FuseOSError(EOPNOTSUPP)
   def chmod(self, path, mode):
     if debug_unsupported == True: appLog('debug', 'Called: chmod() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def fsync(self, path, fdatasync, fh):
-    if debug_unsupported == True: appLog('debug', 'Called: fsync() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
 
 # apiAuth class.
