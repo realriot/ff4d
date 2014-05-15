@@ -17,7 +17,7 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, argparse, requests, urllib, urllib2, dropbox
+import os, sys, pwd, errno, argparse, requests, urllib, urllib2, httplib, dropbox
 import simplejson as json
 from time import time, mktime, sleep
 from datetime import datetime
@@ -74,7 +74,7 @@ class Dropbox(Operations):
   def getFH(self):
     for i in range(1,8193):
       if i not in self.openfh:
-        self.openfh[i] = {'f' : False, 'lock' : False}
+        self.openfh[i] = {'f' : False, 'lock' : False, 'eoffset': 0}
         self.runfh[i] = False
         return i
     return False
@@ -313,16 +313,20 @@ class Dropbox(Operations):
 
     self.runfh[fh] = True
     if debug == True: appLog('debug', 'Called: read() - Path: ' + path + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
+    if debug == True: appLog('debug', 'Excpected offset: ' + str(self.openfh[fh]['eoffset']))
     if fh in self.openfh:
       if self.openfh[fh]['f'] == False:
         try:
           #self.openfh[fh] = client.get_file(path)
-          self.openfh[fh]['f'] = self.getDropboxRemoteFilehandle(path)
+          self.openfh[fh]['f'] = self.getDropboxRemoteFilehandle(path, offset)
         except dropbox.rest.ErrorResponse, e:
           appLog('error', 'Could not open remote file: ' + path, e.error_msg)
           raise FuseOSError(EIO) 
       else:
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
+        if self.openfh[fh]['eoffset'] != offset:
+          if debug == True: appLog('debug', 'Requested offset differs from expected offset. Seeking')
+          self.openfh[fh]['f'] = self.getDropboxRemoteFilehandle(path, offset)
         pass
 
     # Read from FH.
@@ -336,6 +340,7 @@ class Dropbox(Operations):
     if debug == True: appLog('debug', 'Read bytes from remote source: ' + str(len(rbytes)))
     self.openfh[fh]['lock'] = False
     self.runfh[fh] = False
+    self.openfh[fh]['eoffset'] = offset + len(rbytes)
     return rbytes
 
   # Write data to a filehandle.
