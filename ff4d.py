@@ -17,7 +17,7 @@
 # Error codes: http://docs.python.org/2/library/errno.html
 from __future__ import with_statement
 
-import os, sys, pwd, errno, argparse, requests, urllib, urllib2, httplib, dropbox
+import os, sys, pwd, errno, argparse, urllib, urllib2, httplib, dropbox
 import simplejson as json
 from time import time, mktime, sleep
 from datetime import datetime
@@ -25,7 +25,9 @@ from stat import S_IFDIR, S_IFLNK, S_IFREG
 from fuse import FUSE, FuseOSError, Operations
 from errno import *
 
-# FUSE Class to handle operations.
+##################################
+# Class: FUSE Dropbox operations #
+##################################
 class Dropbox(Operations):
   def __init__(self, access_token, client, restclient):
     self.access_token = access_token
@@ -553,19 +555,56 @@ class Dropbox(Operations):
     if debug_unsupported == True: appLog('debug', 'Called: chmod() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
 
-# apiAuth class.
+########################
+# Class: API transport #
+########################
+class apiRequest():
+  def __init__(self):
+    pass
+
+  # Function to handle GET API request.
+  def get(self, url, args):
+    user_agent = "apiRequest_FF4D"
+    headers = {'User-Agent' : user_agent}
+
+    # Add arguments to request string.
+    if args != None and len(args) > 0:
+      url = url + '?' + urllib.urlencode(args)
+
+    try:
+      req = urllib2.Request(url, None, headers)
+      response = urllib2.urlopen(req)
+      return response.read()
+    except urllib2.HTTPError, e:
+      appLog('error', 'apiRequest failed. HTTPError ' + str(e.code))
+      return False
+    except urllib2.URLError, e:
+      appLog('error', 'apiRequest failed. URLError' + str(e.reason))
+      return False
+    except httplib.HTTPException, e:
+      appLog('error', 'apiRequest request failed (HTTPException)')
+      return False
+    except Exception:
+      appLog('error', 'apiRequest request failed (unknown exception)')
+      return False
+    return False
+
+###########################
+# Class: API authorization#
+###########################
 class apiAuth:
   def __init__(self):
     self.access_token = False
+    self.apiRequest = apiRequest() 
     if debug == True: appLog('debug', 'Initialzed apiAuth')
 
   # Get code for polling.
   def getCode(self, provider, appkey):
     if debug == True: appLog('debug', 'Trying to fetch apiAuth code: ' + provider + ' ' + appkey)
     try:
-      payload = {'get_code': '', 'provider': provider, 'appkey': appkey}
-      r = requests.get("https://tools.schmidt.ps/authApp", params=payload)
-      data = json.loads(r.text)
+      args = {'get_code': '', 'provider': provider, 'appkey': appkey}
+      result = self.apiRequest.get("https://tools.schmidt.ps/authApp", args)
+      data = json.loads(result)
     except:
       if debug == True: appLog('debug', 'Failed to fetch apiAuth code')
       return False
@@ -582,9 +621,9 @@ class apiAuth:
     loop = True
     print "Waiting for authorization..."
     while loop == True:
-      payload = {'poll_code': code}
-      r = requests.get("https://tools.schmidt.ps/authApp", params=payload)
-      data = json.loads(r.text)
+      args = {'poll_code': code}
+      result = self.apiRequest.get("https://tools.schmidt.ps/authApp", args)
+      data = json.loads(result)
 
       if 'error' in data:
         return False
