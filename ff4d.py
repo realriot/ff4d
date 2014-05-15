@@ -96,11 +96,11 @@ class Dropbox(Operations):
 
     # Seek range on remote webserver.
     if seek != False:
-      print "Seeking: " + str(seek)
+      if debug == True: appLog('debug', 'Seeking to: ' + str(seek) + ' for path: ' + path.encode("utf-8"))
       headers['Range'] = 'bytes=' + str(seek) + '-'
 
     try:
-      req = urllib2.Request(url + path, None, headers)
+      req = urllib2.Request(url + path.encode("utf-8"), None, headers)
       response = urllib2.urlopen(req)
       return response
     except urllib2.HTTPError, e:
