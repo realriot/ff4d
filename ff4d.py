@@ -19,8 +19,7 @@
 
 from __future__ import with_statement
 
-import os, sys, pwd, errno, argparse, urllib, urllib2, httplib
-import simplejson as json
+import os, sys, pwd, errno, json, argparse, urllib, urllib2, httplib
 from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -252,7 +251,7 @@ class Dropbox(Operations):
         if debug_raw == True: appLog('debug', str(item))
       except Exception, e:
         appLog('error', 'Could not fetch metadata for: ' + path, str(e))
-        if e.status == 404:
+        if str(e) == 'apiRequest failed. HTTPError: 404':
           return False
         else:
           raise FuseOSError(EREMOTEIO)
@@ -338,14 +337,14 @@ class Dropbox(Operations):
       pass
 
     self.runfh[fh] = True
-    if debug == True: appLog('debug', 'Called: read() - Path: ' + path + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
+    if debug == True: appLog('debug', 'Called: read() - Path: ' + path.encode("utf-8") + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
     if debug == True: appLog('debug', 'Excpected offset: ' + str(self.openfh[fh]['eoffset']))
     if fh in self.openfh:
       if self.openfh[fh]['f'] == False:
         try:
           self.openfh[fh]['f'] = self.apiRequestDropboxRemoteFilehandle(path, offset)
         except Exception, e:
-          appLog('error', 'Could not open remote file: ' + path, str(e))
+          appLog('error', 'Could not open remote file: ' + path.encode("utf-8"), str(e))
           raise FuseOSError(EIO) 
       else:
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
@@ -359,7 +358,7 @@ class Dropbox(Operations):
     try:
       rbytes = self.openfh[fh]['f'].read(length)
     except:
-      appLog('error', 'Could not read data from remotefile: ' + path)
+      appLog('error', 'Could not read data from remotefile: ' + path.encode("utf-8"))
       raise FuseOSError(EIO)
 
     if debug == True: appLog('debug', 'Read bytes from remote source: ' + str(len(rbytes)))
@@ -370,7 +369,7 @@ class Dropbox(Operations):
 
   # Write data to a filehandle.
   def write(self, path, buf, offset, fh):
-    if debug == True: appLog('debug', 'Called: write() - Path: ' + path + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
+    if debug == True: appLog('debug', 'Called: write() - Path: ' + path.encode("utf-8") + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
     try:
       # Check for the beginning of the file.
       if fh in self.openfh:
@@ -398,12 +397,12 @@ class Dropbox(Operations):
       else:
         raise FuseOSError(EIO) 
     except Exception, e:
-      appLog('error', 'Could not write to remote file: ' + path, str(e))
+      appLog('error', 'Could not write to remote file: ' + path.encode("utf-8"), str(e))
       raise FuseOSError(EIO)
 
   # Open a filehandle.
   def open(self, path, flags):
-    if debug == True: appLog('debug', 'Called: open() - Path: ' + path + ' Flags: ' + str(flags))
+    if debug == True: appLog('debug', 'Called: open() - Path: ' + path.encode("utf-8") + ' Flags: ' + str(flags))
     flagline = self.modeToFlag(flags)
     if debug == True: appLog('debug', 'Opening file with flags: ' + flagline)
 
@@ -418,7 +417,7 @@ class Dropbox(Operations):
 
   # Create a file.
   def create(self, path, mode):
-    if debug == True: appLog('debug', 'Called: create() - Path: ' + path + ' Mode: ' + str(mode))
+    if debug == True: appLog('debug', 'Called: create() - Path: ' + path.encode("utf-8") + ' Mode: ' + str(mode))
     flagline = self.modeToFlag(mode)
     if debug == True: appLog('debug', 'Creating file with flags: ' + flagline)
 
@@ -433,7 +432,7 @@ class Dropbox(Operations):
 
   # Release (close) a filehandle.
   def release(self, path, fh):
-    if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
+    if debug == True: appLog('debug', 'Called: release() - Path: ' + path.encode("utf-8") + ' FH: ' + str(fh))
 
     # Check to finish Dropbox upload.
     if type(self.openfh[fh]['f']) is dict and 'upload_id' in self.openfh[fh]['f'] and self.openfh[fh]['f']['upload_id'] != "":
@@ -454,12 +453,12 @@ class Dropbox(Operations):
 
   # Truncate a file to overwrite it.
   def truncate(self, path, length, fh=None):
-    if debug == True: appLog('debug', 'Called: truncate() - Path: ' + path + " Size: " + str(length))
+    if debug == True: appLog('debug', 'Called: truncate() - Path: ' + path.encode("utf-8") + " Size: " + str(length))
     return 0
 
   # List the content of a directory.
   def readdir(self, path, fh):
-    if debug == True: appLog('debug', 'Called: readdir() - Path: ' + path)
+    if debug == True: appLog('debug', 'Called: readdir() - Path: ' + path.encode("utf-8"))
 
     # Fetch folder informations.
     fusefolder = ['.', '..']
