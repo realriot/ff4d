@@ -614,6 +614,7 @@ class DropboxClient(object):
               - 404: No file was found at given from_path.
               - 503: User over storage quota.
         """
+        print "SDK DEBUG: " + self.session.root
         params = {'root': self.session.root,
                   'from_path': format_path(from_path),
                   'to_path': format_path(to_path)}

@@ -209,6 +209,9 @@ class RESTClientObject(object):
         try:
             # Grab a connection from the pool to make the request.
             # We return it to the pool when caller close() the response
+            print "Method: " + method
+            print "URL: " + url
+            print "Headers: " + str(headers)
             urlopen = self.mock_urlopen if self.mock_urlopen else self.pool_manager.urlopen
             r = urlopen(
                 method=method,
