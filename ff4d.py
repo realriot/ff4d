@@ -152,11 +152,11 @@ class Dropbox(Operations):
 
     # Seek range on remote webserver.
     if seek != False:
-      if debug == True: appLog('debug', 'Seeking to: ' + str(seek) + ' for path: ' + path.encode("utf-8"))
+      if debug == True: appLog('debug', 'Seeking to: ' + str(seek) + ' for path: ' + path)
       headers['Range'] = 'bytes=' + str(seek) + '-'
 
     try:
-      req = urllib2.Request(url + path.encode("utf-8"), None, headers)
+      req = urllib2.Request(url + path, None, headers)
       response = urllib2.urlopen(req)
       return response
     except urllib2.HTTPError, e:
@@ -186,9 +186,9 @@ class Dropbox(Operations):
         # Remove folder items from cache.
         if debug == True: appLog('debug', 'Removing childs of path from cache')
         for tmp in item['contents']:
-          if debug == True: appLog('debug', 'Removing from cache: ' + tmp['path'].encode("utf-8"))
-          if tmp['path'].encode("utf-8") in self.cache:
-            self.cache.pop(tmp['path'].encode("utf-8"))
+          if debug == True: appLog('debug', 'Removing from cache: ' + tmp['path'])
+          if tmp['path'] in self.cache:
+            self.cache.pop(tmp['path'])
       else:
         if os.path.dirname(path) in self.cache:
           if self.cache[os.path.dirname(path)]['is_dir'] == True: 
@@ -236,7 +236,7 @@ class Dropbox(Operations):
             if tmp['is_dir'] == False:
               if 'is_deleted' not in tmp or ('is_deleted' in tmp and tmp['is_deleted'] == False):
                 tmp.update({'cachets':cachets})
-                self.cache[tmp['path'].encode("utf-8")] = tmp
+                self.cache[tmp['path']] = tmp
         except Exception, e:
           if debug == True: appLog('debug', 'No remote changes detected for folder: ' + path)
       return item
@@ -265,13 +265,14 @@ class Dropbox(Operations):
         for tmp in item['contents']:
           if 'is_deleted' not in tmp or ('is_deleted' in tmp and tmp['is_deleted'] == False):
             tmp.update({'cachets':cachets})
-            self.cache[tmp['path'].encode("utf-8")] = tmp
+            self.cache[tmp['path']] = tmp
       return item
 
   #########################
   # Filesystem functions. #
   #########################
   def mkdir(self, path, mode):
+    path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: mkdir() - Path: ' + path)
     try:
       self.dbxFileCreateFolder(path)
@@ -285,6 +286,7 @@ class Dropbox(Operations):
 
   # Remove a directory.
   def rmdir(self, path):
+    path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: rmdir() - Path: ' + path)
     try:
       self.dbxFileDelete(path)
@@ -300,6 +302,7 @@ class Dropbox(Operations):
 
   # Remove a file.
   def unlink(self, path):
+    path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: unlink() - Path: ' + path)
 
     # Remove data from cache.
@@ -317,6 +320,8 @@ class Dropbox(Operations):
 
   # Rename a file or directory.
   def rename(self, old, new):
+    old = old.encode('utf-8')
+    new = new.encode('utf-8')
     if debug == True: appLog('debug', 'Called: rename() - Old: ' + old + ' New: ' + new)
     try:
       self.dbxFileMove(old, new)
@@ -332,19 +337,20 @@ class Dropbox(Operations):
 
   # Read data from a remote filehandle.
   def read(self, path, length, offset, fh):
+    path = path.encode('utf-8')
     # Wait while this function is not threadable.
     while self.openfh[fh]['lock'] == True:
       pass
 
     self.runfh[fh] = True
-    if debug == True: appLog('debug', 'Called: read() - Path: ' + path.encode("utf-8") + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
+    if debug == True: appLog('debug', 'Called: read() - Path: ' + path + ' Length: ' + str(length) + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
     if debug == True: appLog('debug', 'Excpected offset: ' + str(self.openfh[fh]['eoffset']))
     if fh in self.openfh:
       if self.openfh[fh]['f'] == False:
         try:
           self.openfh[fh]['f'] = self.apiRequestDropboxRemoteFilehandle(path, offset)
         except Exception, e:
-          appLog('error', 'Could not open remote file: ' + path.encode("utf-8"), str(e))
+          appLog('error', 'Could not open remote file: ' + path, str(e))
           raise FuseOSError(EIO) 
       else:
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
@@ -358,7 +364,7 @@ class Dropbox(Operations):
     try:
       rbytes = self.openfh[fh]['f'].read(length)
     except:
-      appLog('error', 'Could not read data from remotefile: ' + path.encode("utf-8"))
+      appLog('error', 'Could not read data from remotefile: ' + path)
       raise FuseOSError(EIO)
 
     if debug == True: appLog('debug', 'Read bytes from remote source: ' + str(len(rbytes)))
@@ -369,7 +375,8 @@ class Dropbox(Operations):
 
   # Write data to a filehandle.
   def write(self, path, buf, offset, fh):
-    if debug == True: appLog('debug', 'Called: write() - Path: ' + path.encode("utf-8") + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: write() - Path: ' + path + ' Offset: ' + str(offset) + ' FH: ' + str(fh))
     try:
       # Check for the beginning of the file.
       if fh in self.openfh:
@@ -397,12 +404,13 @@ class Dropbox(Operations):
       else:
         raise FuseOSError(EIO) 
     except Exception, e:
-      appLog('error', 'Could not write to remote file: ' + path.encode("utf-8"), str(e))
+      appLog('error', 'Could not write to remote file: ' + path, str(e))
       raise FuseOSError(EIO)
 
   # Open a filehandle.
   def open(self, path, flags):
-    if debug == True: appLog('debug', 'Called: open() - Path: ' + path.encode("utf-8") + ' Flags: ' + str(flags))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: open() - Path: ' + path + ' Flags: ' + str(flags))
     flagline = self.modeToFlag(flags)
     if debug == True: appLog('debug', 'Opening file with flags: ' + flagline)
 
@@ -417,7 +425,8 @@ class Dropbox(Operations):
 
   # Create a file.
   def create(self, path, mode):
-    if debug == True: appLog('debug', 'Called: create() - Path: ' + path.encode("utf-8") + ' Mode: ' + str(mode))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: create() - Path: ' + path + ' Mode: ' + str(mode))
     flagline = self.modeToFlag(mode)
     if debug == True: appLog('debug', 'Creating file with flags: ' + flagline)
 
@@ -432,7 +441,8 @@ class Dropbox(Operations):
 
   # Release (close) a filehandle.
   def release(self, path, fh):
-    if debug == True: appLog('debug', 'Called: release() - Path: ' + path.encode("utf-8") + ' FH: ' + str(fh))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: release() - Path: ' + path + ' FH: ' + str(fh))
 
     # Check to finish Dropbox upload.
     if type(self.openfh[fh]['f']) is dict and 'upload_id' in self.openfh[fh]['f'] and self.openfh[fh]['f']['upload_id'] != "":
@@ -453,12 +463,14 @@ class Dropbox(Operations):
 
   # Truncate a file to overwrite it.
   def truncate(self, path, length, fh=None):
-    if debug == True: appLog('debug', 'Called: truncate() - Path: ' + path.encode("utf-8") + " Size: " + str(length))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: truncate() - Path: ' + path + " Size: " + str(length))
     return 0
 
   # List the content of a directory.
   def readdir(self, path, fh):
-    if debug == True: appLog('debug', 'Called: readdir() - Path: ' + path.encode("utf-8"))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: readdir() - Path: ' + path)
 
     # Fetch folder informations.
     fusefolder = ['.', '..']
@@ -476,7 +488,8 @@ class Dropbox(Operations):
 
   # Get properties for a directory or file.
   def getattr(self, path, fh=None):
-    if debug == True: appLog('debug', 'Called: getattr() - Path: ' + path.encode("utf-8"))
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: getattr() - Path: ' + path)
 
     # Get userid and groupid for current user.
     uid = pwd.getpwuid(os.getuid()).pw_uid
@@ -486,7 +499,7 @@ class Dropbox(Operations):
     now = int(time())
 
     # Check wether data exists for item.
-    item = self.getDropboxMetadata(path.encode("utf-8"))
+    item = self.getDropboxMetadata(path)
     if item == False:
       #raise FuseOSError(ENOENT)
       raise FuseOSError(ENOENT)
@@ -510,7 +523,7 @@ class Dropbox(Operations):
         st_gid=gid,
         st_nlink=2
       )
-      if debug == True: appLog('debug', 'Returning properties for directory: ' + path.encode("utf-8") + ' (' + str(properties) + ')')
+      if debug == True: appLog('debug', 'Returning properties for directory: ' + path + ' (' + str(properties) + ')')
       return properties 
     else:
       properties = dict(
@@ -523,41 +536,52 @@ class Dropbox(Operations):
         st_gid=gid,
         st_nlink=1,
       )
-      if debug == True: appLog('debug', 'Returning properties for file: ' + path.encode("utf-8") + ' (' + str(properties) + ')')
+      if debug == True: appLog('debug', 'Returning properties for file: ' + path + ' (' + str(properties) + ')')
       return properties 
 
   # Flush filesystem cache. Always true in this case.
   def fsync(self, path, fdatasync, fh):
+    path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: fsync() - Path: ' + path)
 
   ########################################
   # Not supported by transport endpoint. #
   ########################################
   def mknod(self, path, mode, dev):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: mknod() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def symlink(self, target, source):
-    if debug_unsupported == True: appLog('debug', 'Called: symlink() - Path: ' + path)
+    target = target.encode('utf-8')
+    source = source.encode('utf-8')
+    if debug_unsupported == True: appLog('debug', 'Called: symlink() - Path: ' + target + ' ' + source)
     raise FuseOSError(EOPNOTSUPP)
   def setxattr(self, path, name, value, options, position=0):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: setxattr() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def removexattr(self, path, name):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: removexattr() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def listxattr(self, path):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: listxattr() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def getxattr(self, path, name, position=0):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: getxattr() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def destroy(self, path):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: destroy() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def chown(self, path, uid, gid):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: chown() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
   def chmod(self, path, mode):
+    path = path.encode('utf-8')
     if debug_unsupported == True: appLog('debug', 'Called: chmod() - Path: ' + path)
     raise FuseOSError(EOPNOTSUPP)
 
