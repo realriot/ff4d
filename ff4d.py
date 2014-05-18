@@ -544,47 +544,6 @@ class Dropbox(Operations):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: fsync() - Path: ' + path)
 
-  ########################################
-  # Not supported by transport endpoint. #
-  ########################################
-  def mknod(self, path, mode, dev):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: mknod() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def symlink(self, target, source):
-    target = target.encode('utf-8')
-    source = source.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: symlink() - Path: ' + target + ' ' + source)
-    raise FuseOSError(EOPNOTSUPP)
-  def setxattr(self, path, name, value, options, position=0):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: setxattr() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def removexattr(self, path, name):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: removexattr() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def listxattr(self, path):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: listxattr() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def getxattr(self, path, name, position=0):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: getxattr() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def destroy(self, path):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: destroy() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def chown(self, path, uid, gid):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: chown() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-  def chmod(self, path, mode):
-    path = path.encode('utf-8')
-    if debug_unsupported == True: appLog('debug', 'Called: chmod() - Path: ' + path)
-    raise FuseOSError(EOPNOTSUPP)
-
 ########################
 # Class: API transport #
 ########################
@@ -783,7 +742,6 @@ allow_other = False
 allow_root = False
 debug = False
 debug_raw = False
-debug_unsupported = False
 debug_fuse = False
 if __name__ == '__main__':
   print '********************************************************'
@@ -799,7 +757,6 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('-d', '--debug', help='Show debug output', action='store_true', default=False)
   parser.add_argument('-dr', '--debug-raw', help='Show raw debug output', action='store_true', default=False)
-  parser.add_argument('-du', '--debug-unsupported', help='Show calls of unsupported functions', action='store_true', default=False)
   parser.add_argument('-df', '--debug-fuse', help='Show FUSE debug output', action='store_true', default=False)
 
   # Mutual exclusion of arguments. 
@@ -823,7 +780,6 @@ if __name__ == '__main__':
   allow_root = args.allow_root
   debug = args.debug
   debug_raw = args.debug_raw
-  debug_unsupported = args.debug_unsupported
   debug_fuse = args.debug_fuse
 
   # Check ranges and values of given arguments.
