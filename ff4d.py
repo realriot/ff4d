@@ -105,10 +105,10 @@ class Dropbox(Operations):
   #####################
 
   # Get a valid and unique filehandle.
-  def getFH(self):
+  def getFH(self, mode='r'):
     for i in range(1,8193):
       if i not in self.openfh:
-        self.openfh[i] = {'f' : False, 'lock' : False, 'eoffset': 0}
+        self.openfh[i] = {'mode' : mode, 'f' : False, 'lock' : False, 'eoffset': 0}
         self.runfh[i] = False
         return i
     return False
@@ -370,7 +370,7 @@ class Dropbox(Operations):
       if debug == True: appLog('debug', 'O_APPEND mode not supported for open()') 
       raise FuseOSError(EOPNOTSUPP)
 
-    fh = self.getFH()
+    fh = self.getFH('r')
     if debug == True: appLog('debug', 'Returning unique filehandle: ' + str(fh))
     return fh
 
@@ -379,7 +379,7 @@ class Dropbox(Operations):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: create() - Path: ' + path + ' Mode: ' + str(mode))
 
-    fh = self.getFH()
+    fh = self.getFH('w')
     if debug == True: appLog('debug', 'Returning unique filehandle: ' + str(fh))
 
     now = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
@@ -402,11 +402,12 @@ class Dropbox(Operations):
       if debug == True: appLog('debug', 'Finishing upload to Dropbox')
       result = self.dbxCommitChunkedUpload(path, self.openfh[fh]['f']['upload_id'])
 
-    self.releaseFH(fh)
-    if debug == True: appLog('debug', 'Released filehandle: ' + str(fh)) 
+    # Remove outdated data from cache if handle was opened for writing.
+    if self.openfh[fh]['mode'] == 'w':
+      self.removeFromCache(os.path.dirname(path))
 
-    # Remove outdated data from cache.
-    self.removeFromCache(os.path.dirname(path))
+    self.releaseFH(fh)
+    if debug == True: appLog('debug', 'Released filehandle: ' + str(fh))
 
     return 0
 
