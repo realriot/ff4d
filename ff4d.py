@@ -75,7 +75,7 @@ class Dropbox(Operations):
     return result
 
   # Upload chunk of data to Dropbox.
-  def dbxChunkedUpload(self, data, upload_id, offset = 0):
+  def dbxChunkedUpload(self, data, upload_id, offset=0):
     args = {'offset' : offset}
 
     # Add upload_id if its not the first chunk.
@@ -91,40 +91,18 @@ class Dropbox(Operations):
     result = self.ar.post('https://api-content.dropbox.com/1/commit_chunked_upload/auto' + path, args)
     return result
 
+  # Get Dropbox filehandle.
+  def dbxFilehandle(self, path, seek=False):
+    seekheader = None
+    if seek != False:
+      seekheader = {'Range' : 'bytes=' + str(seek)}
+    result = self.ar.get('https://api-content.dropbox.com/1/files/auto' + path, None, seekheader, True)
+    return result
+
+
   #####################
   # Helper functions. #
   #####################
-
-  # Translate system mode to flag.
-  def modeToFlag(self, mode):
-    flagline = ""
-    modes = {
-      'O_RDONLY'      : os.O_RDONLY,
-      'O_WRONLY'      : os.O_WRONLY,
-      'O_RDWR'        : os.O_RDWR,
-      'O_NONBLOCK'    : os.O_NONBLOCK,
-      'O_APPEND'      : os.O_APPEND,
-      'O_CREAT'       : os.O_CREAT,
-      'O_TRUNC'       : os.O_TRUNC,
-      'O_EXCL'        : os.O_EXCL,
-      'O_DIRECT'      : os.O_DIRECT,
-      'O_NOFOLLOW'    : os.O_NOFOLLOW,
-      'O_DSYNC'       : os.O_DSYNC,
-      'O_RSYNC'       : os.O_RSYNC,
-      'O_SYNC'        : os.O_SYNC,
-      'O_NDELAY'      : os.O_NDELAY,
-      'O_NOCTTY'      : os.O_NOCTTY,
-      'O_ASYNC'       : os.O_ASYNC,
-      'O_DIRECT'      : os.O_DIRECT,
-      'O_DIRECTORY'   : os.O_DIRECTORY,
-      'O_NOFOLLOW'    : os.O_NOFOLLOW,
-      'O_NOATIME'     : os.O_NOATIME
-    }
-
-    for key in modes:
-      if modes[key] & mode:
-        flagline = flagline + key + "|"
-    return flagline.rstrip('|')
 
   # Get a valid and unique filehandle.
   def getFH(self):
@@ -142,36 +120,6 @@ class Dropbox(Operations):
       self.runfh.pop(fh)
     else:
       return False
-
-  # Get filehandle of remote file supporting the seek method.
-  def apiRequestDropboxRemoteFilehandle(self, path, seek=False):
-    user_agent = "apiRequest/tools.schmidt.ps"
-    headers = {'Authorization' : 'Bearer ' + access_token,
-               'User-Agent'    : user_agent}
-    url = 'https://api-content.dropbox.com/1/files/auto'
-
-    # Seek range on remote webserver.
-    if seek != False:
-      if debug == True: appLog('debug', 'Seeking to: ' + str(seek) + ' for path: ' + path)
-      headers['Range'] = 'bytes=' + str(seek) + '-'
-
-    try:
-      req = urllib2.Request(url + path, None, headers)
-      response = urllib2.urlopen(req)
-      return response
-    except urllib2.HTTPError, e:
-      appLog('error', 'Could not read remote file. HTTPError ' + str(e.code))
-      raise FuseOSError(EREMOTEIO)
-    except urllib2.URLError, e:
-      appLog('error', 'Could not read remote file. URLError' + str(e.reason))
-      raise FuseOSError(EREMOTEIO)
-    except httplib.HTTPException, e:
-      appLog('error', 'Could not read remote file (HTTPException)')
-      raise FuseOSError(EREMOTEIO)
-    except Exception:
-      appLog('error', 'Could not read remote file (unknown exception)')
-      raise FuseOSError(EREMOTEIO)
-    return False
 
   # Remove item from cache.
   def removeFromCache(self, path):
@@ -348,15 +296,15 @@ class Dropbox(Operations):
     if fh in self.openfh:
       if self.openfh[fh]['f'] == False:
         try:
-          self.openfh[fh]['f'] = self.apiRequestDropboxRemoteFilehandle(path, offset)
+          self.openfh[fh]['f'] = self.dbxFilehandle(path, offset)
         except Exception, e:
           appLog('error', 'Could not open remote file: ' + path, str(e))
           raise FuseOSError(EIO) 
       else:
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
         if self.openfh[fh]['eoffset'] != offset:
-          if debug == True: appLog('debug', 'Requested offset differs from expected offset. Seeking')
-          self.openfh[fh]['f'] = self.apiRequestDropboxRemoteFilehandle(path, offset)
+          if debug == True: appLog('debug', 'Requested offset differs from expected offset. Seeking to: ' + str(offset))
+          self.openfh[fh]['f'] = self.dbxFilehandle(path, offset)
         pass
 
     # Read from FH.
@@ -411,8 +359,6 @@ class Dropbox(Operations):
   def open(self, path, flags):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: open() - Path: ' + path + ' Flags: ' + str(flags))
-    flagline = self.modeToFlag(flags)
-    if debug == True: appLog('debug', 'Opening file with flags: ' + flagline)
 
     # Validate flags.
     if flags & os.O_APPEND:
@@ -427,8 +373,6 @@ class Dropbox(Operations):
   def create(self, path, mode):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: create() - Path: ' + path + ' Mode: ' + str(mode))
-    flagline = self.modeToFlag(mode)
-    if debug == True: appLog('debug', 'Creating file with flags: ' + flagline)
 
     fh = self.getFH()
     if debug == True: appLog('debug', 'Returning unique filehandle: ' + str(fh))
@@ -553,7 +497,7 @@ class apiRequest():
     pass
 
   # Function to handle GET API request.
-  def get(self, url, args = None, argheaders = None):
+  def get(self, url, args = None, argheaders = None, retresp = False):
     user_agent = "apiRequest/tools.schmidt.ps"
     headers = {'User-Agent' : user_agent}
 
@@ -572,7 +516,12 @@ class apiRequest():
     try:
       req = urllib2.Request(url, None, headers)
       response = urllib2.urlopen(req)
-      return json.loads(response.read())
+
+      # If retresp is TRUE return the raw response object.
+      if retresp == True:
+        return response
+      else: 
+        return json.loads(response.read())
     except urllib2.HTTPError, e:
       appLog('error', 'apiRequest failed. HTTPError: ' + str(e.code))
       raise Exception, 'apiRequest failed. HTTPError: ' + str(e.code)
