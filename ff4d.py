@@ -41,7 +41,7 @@ class Dropbox(Operations):
   #######################################
 
   # Get Dropbox metadata of path.
-  def dbxMetadata(self, path, mhash = None):
+  def dbxMetadata(self, path, mhash=None):
     args = {'file_limit'         : 25000,
             'list'               : True,
             'include_media_info' : False}
@@ -192,6 +192,11 @@ class Dropbox(Operations):
     else:
       if debug == True: appLog('debug', 'No cached metadata for: ' + path)
       try:
+        # If the path already exists, this path (file/dir) does not exist.
+        if os.path.dirname(path) in self.cache and 'contents' in self.cache[os.path.dirname(path)]:
+          if debug == True: appLog('debug', 'Basepath exists in cache for: ' + path)
+          return False
+
         item = self.dbxMetadata(path)
         if 'is_deleted' in item and item['is_deleted'] == True:
           return False
@@ -497,7 +502,7 @@ class apiRequest():
     pass
 
   # Function to handle GET API request.
-  def get(self, url, args = None, argheaders = None, retresp = False):
+  def get(self, url, args=None, argheaders=None, retresp=False):
     user_agent = "apiRequest/tools.schmidt.ps"
     headers = {'User-Agent' : user_agent}
 
@@ -536,7 +541,7 @@ class apiRequest():
       raise Exception, 'apiRequest failed. Unknown exception: ' + str(e)
 
   # Function to handle POST API request.
-  def post(self, url, args = None, argheaders = None, body = None):
+  def post(self, url, args=None, argheaders=None, body=None):
     user_agent = "apiRequest/tools.schmidt.ps"
     headers = {'User-Agent' : user_agent}
 
@@ -626,7 +631,7 @@ class apiAuth:
 #####################
 
 # Log messages to stdout.
-def appLog(mode, text, reason = ""):
+def appLog(mode, text, reason=""):
   msg = "[" + mode.upper() + "] " + text
   if reason != "":
     msg = msg + " (" + reason + ")" 
