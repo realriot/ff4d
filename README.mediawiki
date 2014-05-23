@@ -2,8 +2,8 @@
 global Dropbox or jailed application folder.
 
 To improve the browsing experience of your Dropbox content this plugin will cache
-the structure for a certain amount of time. There's still some work to do to improve
-the caching routine.
+the structure for a certain amount of time. This python script uses '''libfuse''' to
+provide FUSE function to the operating system.
 
 === Donation ===
 Since I'm developing in my free time I'd like to ask you to support my work.
@@ -16,7 +16,8 @@ Thanks in advance
 
 === Requirements ===
 There are some requirements which have to be fulfilled to make this plugin work.
-* FUSE has to be installed (http://fuse.sourceforge.net/).
+* FUSE has to be installed (http://fuse.sourceforge.net/). On Debian you can install FUSE with
+ apt-get install libfuse2
 * Python pkg-resources must be installed. 
 * The user must have the permission to mount FUSE filesystems. On debian systems the user must belong to the group "fuse".
  adduser <user> fuse
@@ -32,11 +33,10 @@ gave to you.
 the token. But remember for this case that you have to add an Dropbox application within
 the [https://www.dropbox.com/developers Dropbox Developer home] by yourself, too.
 
-'''Please secure you access token. NOBODY may know it! This token allows full access
+'''Please secure your access token. NOBODY may know it! This token allows full access
 to your configured dropbox space.'''
 
 === Usage ===
-To use this FUSE plugin you just have to install fuse and this plugin.
 Quick start:
 
  ./ff4d.py <mount folder>
