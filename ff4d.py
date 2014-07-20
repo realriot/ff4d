@@ -756,7 +756,7 @@ if __name__ == '__main__':
     scriptpath = os.path.dirname(sys.argv[0])
     f = open(scriptpath + '/ff4d.config', 'r')
     access_token = f.readline()
-    if debug == True: appLog('debug', 'Got accesstoken from configuration file: ' + access_token)
+    if debug == True: appLog('debug', 'Got accesstoken from configuration file: ' + str(access_token))
   except:
     pass
 
@@ -772,7 +772,7 @@ if __name__ == '__main__':
   if access_token == False:
     appLog('info', 'No accesstoken available. Fetching a new one.')
     access_token = getAccessToken()
-    if debug == True: appLog('debug', 'Got accesstoken from user input: ' + access_token)
+    if debug == True: appLog('debug', 'Got accesstoken from user input: ' + str(access_token))
 
   # Check wether an access_token exists.
   if access_token == False:
