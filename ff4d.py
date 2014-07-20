@@ -19,7 +19,7 @@
 
 from __future__ import with_statement
 
-import os, sys, pwd, errno, json, argparse, urllib, urllib2, httplib
+import os, sys, pwd, errno, json, argparse, urllib, urllib2, httplib, traceback
 from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -186,7 +186,7 @@ class Dropbox(Operations):
                 tmp.update({'cachets':cachets})
                 self.cache[tmp['path']] = tmp
         except Exception, e:
-          if debug == True: appLog('debug', 'No remote changes detected for folder: ' + path)
+          if debug == True: appLog('debug', 'No remote changes detected for folder: ' + path, traceback.format_exc())
       return item
     # No cached data found, do an Dropbox API request to fetch the metadata.
     else:
@@ -203,7 +203,7 @@ class Dropbox(Operations):
         if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
         if debug_raw == True: appLog('debug', str(item))
       except Exception, e:
-        appLog('error', 'Could not fetch metadata for: ' + path, str(e))
+        appLog('error', 'Could not fetch metadata for: ' + path, traceback.format_exc())
         if str(e) == 'apiRequest failed. HTTPError: 404':
           return False
         else:
@@ -230,7 +230,7 @@ class Dropbox(Operations):
     try:
       self.dbxFileCreateFolder(path)
     except Exception, e:
-      appLog('error', 'Could not create folder: ' + path, str(e))
+      appLog('error', 'Could not create folder: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
 
     # Remove outdated data from cache.
@@ -244,7 +244,7 @@ class Dropbox(Operations):
     try:
       self.dbxFileDelete(path)
     except Exception, e:
-      appLog('error', 'Could not delete folder: ' + path, str(e))
+      appLog('error', 'Could not delete folder: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
     if debug == True: appLog('debug', 'Successfully deleted folder: ' + path) 
 
@@ -265,7 +265,7 @@ class Dropbox(Operations):
     try:
       self.dbxFileDelete(path)
     except Exception, e:
-      appLog('error', 'Could not delete file: ' + path, str(reason))
+      appLog('error', 'Could not delete file: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
     if debug == True: appLog('debug', 'Successfully deleted file: ' + path)
 
@@ -279,7 +279,7 @@ class Dropbox(Operations):
     try:
       self.dbxFileMove(old, new)
     except Exception, e:
-      appLog('error', 'Could not rename object: ' + old, str(e))
+      appLog('error', 'Could not rename object: ' + old, traceback.format_exc())
       raise FuseOSError(EIO)
     if debug == True: appLog('debug', 'Successfully renamed object: ' + old)
     if debug_raw == True: appLog('debug', str(result))
@@ -303,7 +303,7 @@ class Dropbox(Operations):
         try:
           self.openfh[fh]['f'] = self.dbxFilehandle(path, offset)
         except Exception, e:
-          appLog('error', 'Could not open remote file: ' + path, str(e))
+          appLog('error', 'Could not open remote file: ' + path, traceback.format_exc())
           raise FuseOSError(EIO) 
       else:
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
@@ -316,8 +316,8 @@ class Dropbox(Operations):
     rbytes = ''
     try:
       rbytes = self.openfh[fh]['f'].read(length)
-    except:
-      appLog('error', 'Could not read data from remotefile: ' + path)
+    except Exception, e:
+      appLog('error', 'Could not read data from remotefile: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
 
     if debug == True: appLog('debug', 'Read bytes from remote source: ' + str(len(rbytes)))
@@ -357,7 +357,7 @@ class Dropbox(Operations):
       else:
         raise FuseOSError(EIO) 
     except Exception, e:
-      appLog('error', 'Could not write to remote file: ' + path, str(e))
+      appLog('error', 'Could not write to remote file: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
 
   # Open a filehandle.
@@ -535,11 +535,11 @@ class apiRequest():
       appLog('error', 'apiRequest failed. URLError: ' + str(e.reason))
       raise Exception, 'apiRequest failed. URLError: ' + str(e.reason)
     except httplib.HTTPException, e:
-      appLog('error', 'apiRequest failed. HTTPException: ' + str(e))
-      raise Exception, 'apiRequest failed. HTTPException: ' + str(e)
+      appLog('error', 'apiRequest failed. HTTPException: ' + traceback.format_exc())
+      raise Exception, 'apiRequest failed. HTTPException: ' + traceback.format_exc()
     except Exception, e:
-      appLog('error', 'apiRequest failed. Unknown exception: ' + str(e))
-      raise Exception, 'apiRequest failed. Unknown exception: ' + str(e)
+      appLog('error', 'apiRequest failed. Unknown exception: ' + traceback.format_exc())
+      raise Exception, 'apiRequest failed. Unknown exception: ' + traceback.format_exc()
 
   # Function to handle POST API request.
   def post(self, url, args=None, argheaders=None, body=None):
@@ -573,13 +573,13 @@ class apiRequest():
       appLog('error', 'apiRequest failed. URLError: ' + str(e.reason))
       raise Exception, 'apiRequest failed. URLError: ' + str(e.reason)
     except httplib.HTTPException, e:
-      appLog('error', 'apiRequest failed. HTTPException: ' + str(e))
-      raise Exception, 'apiRequest failed. HTTPException: ' + str(e)
+      appLog('error', 'apiRequest failed. HTTPException: ' + traceback.format_exc())
+      raise Exception, 'apiRequest failed. HTTPException: ' + traceback.format_exc()
     except Exception, e:
       from traceback import print_exc
       print_exc()
-      appLog('error', 'apiRequest failed. Unknown exception: ' + str(e))
-      raise Exception, 'apiRequest failed. Unknown exception: ' + str(e)
+      appLog('error', 'apiRequest failed. Unknown exception: ' + traceback.format_exc())
+      raise Exception, 'apiRequest failed. Unknown exception: ' + traceback.format_exc()
 
 ###########################
 # Class: API authorization#
@@ -597,13 +597,13 @@ class apiAuth:
       args = {'get_code': '', 'provider': provider, 'appkey': appkey}
       result = self.apiRequest.get("https://tools.schmidt.ps/authApp", args)
       data = json.loads(result)
-    except:
-      if debug == True: appLog('debug', 'Failed to fetch apiAuth code')
-      return False
+    except Exception, e:
+      if debug == True: appLog('debug', 'Failed to fetch apiAuth code', traceback.format_exc())
+      return None
 
     if 'error' in data:
       if debug == True: appLog('debug', 'Error in reply of apiAuth code-request')
-      return False
+      return None
 
     if debug == True: appLog('debug', 'Got valid apiAuth code: ' + str(data['code']))
     return data['code']
@@ -664,7 +664,7 @@ def getAccessToken():
 
   aa = apiAuth()
   code = aa.getCode('dropbox', appkey)
-  if code != False:
+  if code is not None:
     print ""
     print "Please visit http://tools.schmidt.ps/authApp and use the following"
     print "code to authorize this application: " + str(code)
@@ -757,7 +757,7 @@ if __name__ == '__main__':
     f = open(scriptpath + '/ff4d.config', 'r')
     access_token = f.readline()
     if debug == True: appLog('debug', 'Got accesstoken from configuration file: ' + str(access_token))
-  except:
+  except Exception, e:
     pass
 
   # Check wether the user gave an Dropbox access_token as argument.
@@ -786,7 +786,7 @@ if __name__ == '__main__':
     headers = {'Authorization' : 'Bearer ' + access_token}
     account_info = ar.get('https://api.dropbox.com/1/account/info', None, headers)
   except Exception, e:
-    appLog('error', 'Could not talk to Dropbox API.', str(e))
+    appLog('error', 'Could not talk to Dropbox API.', traceback.format_exc())
     sys.exit(-1)
   ar.headers = {'Authorization' : 'Bearer ' + access_token}
 
@@ -800,7 +800,7 @@ if __name__ == '__main__':
       os.chmod(scriptpath + '/ff4d.config', 0600)
       if debug == True: appLog('debug', 'Wrote accesstoken to configuration file.\n')
     except Exception, e:
-      appLog('error', 'Could not write configuration file.', str(e))
+      appLog('error', 'Could not write configuration file.', traceback.format_exc())
 
   # Everything went fine and we're authed against the Dropbox api.
   print "Welcome " + account_info['display_name']
@@ -810,6 +810,6 @@ if __name__ == '__main__':
   print "Starting FUSE..."
   try:
     FUSE(Dropbox(ar), mountpoint, foreground=args.background, debug=debug_fuse, sync_read=True, allow_other=allow_other, allow_root=allow_root)
-  except:
-    appLog('error', 'Failed to start FUSE...')
+  except Exception, e:
+    appLog('error', 'Failed to start FUSE...', traceback.format_exc())
     sys.exit(-1)
