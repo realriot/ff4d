@@ -19,7 +19,7 @@ There are some requirements which have to be fulfilled to make this plugin work.
 * FUSE has to be installed (http://fuse.sourceforge.net/). On Debian you can install FUSE with
  apt-get install libfuse2
 * Python pkg-resources must be installed. 
-* The user must have the permission to mount FUSE filesystems. On debian systems the user must belong to the group "fuse".
+* The user must have the permission to mount FUSE filesystems. On debian (before Jessie release) systems the user must belong to the group "fuse".
  adduser <user> fuse
 
 === Compatible systems ===
