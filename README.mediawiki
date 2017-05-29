@@ -21,6 +21,7 @@ There are some requirements which have to be fulfilled to make this plugin work.
 * Python pkg-resources must be installed. 
 * The user must have the permission to mount FUSE filesystems. On debian (before Jessie release) systems the user must belong to the group "fuse".
  adduser <user> fuse
+ * install dropbox module with `pip install dropbox`
 
 === Compatible systems ===
 I've tested this script running on:
