@@ -19,7 +19,7 @@
 
 from __future__ import with_statement
 
-import os, sys, pwd, errno, json, argparse, urllib, urllib2, httplib, traceback
+import os, sys, pwd, errno, json, argparse, urllib, httplib, traceback, requests
 from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -42,14 +42,24 @@ class Dropbox(Operations):
 
   # Get Dropbox metadata of path.
   def dbxMetadata(self, path, mhash=None):
-    args = {'file_limit'         : 25000,
-            'list'               : True,
-            'include_media_info' : False}
+    if path == '/':
+      query_path = ''
+    else:
+      query_path = path
 
-    if mhash != None:
-      args.update({'hash' : mhash})
+    args = {'path' : query_path}
 
-    result = self.ar.get('https://api.dropbox.com/1/metadata/auto' + path, args)
+#    if mhash != None and mhash != 0:
+#      args.update({'hash' : mhash})
+
+    result = self.ar.post('https://api.dropboxapi.com/2/files/list_folder', body=args)
+    if not result:
+      raise Exception('apiRequest failed. HTTPError: 404')
+
+    result['path'] = path
+    if 'entries' in result:
+      for tmp in result['entries']:
+        tmp['path']=tmp['path_display']
     return result
 
   # Rename a Dropbox file/directory object.
@@ -93,10 +103,11 @@ class Dropbox(Operations):
 
   # Get Dropbox filehandle.
   def dbxFilehandle(self, path, seek=False):
-    seekheader = None
+    headers = {'Dropbox-API-Arg': "{\"path\": \""+path+"\"}"}
+    headers.update({'Content-Type':'application/octet-stream'})
     if seek != False:
-      seekheader = {'Range' : 'bytes=' + str(seek)}
-    result = self.ar.get('https://api-content.dropbox.com/1/files/auto' + path, None, seekheader, True)
+      headers.update({'Range' : 'bytes=' + str(seek)})
+    result = self.ar.post('https://content.dropboxapi.com/2/files/download',argheaders=headers)
     return result
 
 
@@ -130,7 +141,7 @@ class Dropbox(Operations):
       item = self.cache[path]
 
       # If this is a directory, remove all childs.
-      if item['is_dir'] == True and 'contents' in item:
+      if 'entries' in item and 'contents' in item:
         # Remove folder items from cache.
         if debug == True: appLog('debug', 'Removing childs of path from cache')
         for tmp in item['contents']:
@@ -138,12 +149,14 @@ class Dropbox(Operations):
           if tmp['path'] in self.cache:
             self.cache.pop(tmp['path'])
       else:
-        if os.path.dirname(path) in self.cache:
-          if self.cache[os.path.dirname(path)]['is_dir'] == True: 
+        cur_path=os.path.dirname(path)
+        if cur_path in self.cache:
+          if 'entries' in self.cache[cur_path]: 
             if debug == True: appLog('debug', 'Removing parent path from file in cache')
             self.cache.pop(os.path.dirname(path))
       if debug == True: appLog('debug', 'Removing from cache: ' + path)
-      self.cache.pop(path)
+      if path in self.cache:
+        self.cache.pop(path)
       return True
     else:
       if debug == True: appLog('debug', 'Path not in cache: ' + path)
@@ -152,36 +165,41 @@ class Dropbox(Operations):
   # Get metadata for a file or folder from the Dropbox API or local cache.
   def getDropboxMetadata(self, path, deep=False):
     # Metadata exists within cache.
-    if path in self.cache:
-      if debug == True: appLog('debug', 'Found cached metadata for: ' + path)
-      item = self.cache[path]
+    path_enc = path.decode("utf-8")
+    if path_enc in self.cache:
+      if debug == True: appLog('debug', 'Found cached metadata for: ' + path_enc)
+      item = self.cache[path_enc]
 
       # Check whether this is a directory and if there any remote changes.
-      if item['is_dir'] == True and item['cachets']<int(time()) or (deep == True and 'contents' not in item):
+      if 'entries' in item and item['cachets']<int(time()) or (deep == True and 'contents' not in item):
         # Set temporary hash value for directory non-deep cache entry.
         if deep == True and 'contents' not in item:
           item['hash'] = '0' 
         if debug == True: appLog('debug', 'Metadata directory deepcheck: ' + str(deep))
-        if debug == True: appLog('debug', 'Cache expired for: ' + path)
-        if debug == True: appLog('debug', 'cachets: ' + str(item['cachets']) + ' - ' + str(int(time())))
-        if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path)
+        if debug == True: appLog('debug', 'Cache expired for: ' + path_enc)
+	if 'cachets' in item:
+	    cachets = item['cachets']
+	else:
+	    cachets = None
+        if debug == True: appLog('debug', 'cachets: ' + str(cachets) + ' - ' + str(int(time())))
+        if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path_enc)
         try:
           item = self.dbxMetadata(path, item['hash'])
           if 'is_deleted' in item and item['is_deleted'] == True:
             return False
-          if debug == True: appLog('debug', 'Remote endpoint signalizes changes. Updating local cache for folder: ' + path)
+          if debug == True: appLog('debug', 'Remote endpoint signalizes changes. Updating local cache for folder: ' + path_enc)
           if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
           if debug_raw == True: appLog('debug', str(item))
 
           # Remove outdated data from cache.
-          self.removeFromCache(path)
+          self.removeFromCache(path_enc)
 
           # Cache new data.
           cachets = int(time())+cache_time
           item.update({'cachets':cachets})
-          self.cache[path] = item
-          for tmp in item['contents']:
-            if tmp['is_dir'] == False:
+          self.cache[path_enc] = item
+          for tmp in item['entries']:
+            if 'entries' not in tmp:
               if 'is_deleted' not in tmp or ('is_deleted' in tmp and tmp['is_deleted'] == False):
                 tmp.update({'cachets':cachets})
                 self.cache[tmp['path']] = tmp
@@ -190,6 +208,7 @@ class Dropbox(Operations):
       return item
     # No cached data found, do an Dropbox API request to fetch the metadata.
     else:
+      if debug == True: appLog('debug', "cache: " + str(self.cache) + " path: " + str(path_enc))
       if debug == True: appLog('debug', 'No cached metadata for: ' + path)
       try:
         # If the path already exists, this path (file/dir) does not exist.
@@ -203,10 +222,10 @@ class Dropbox(Operations):
         if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
         if debug_raw == True: appLog('debug', str(item))
       except Exception, e:
-        appLog('error', 'Could not fetch metadata for: ' + path, traceback.format_exc())
         if str(e) == 'apiRequest failed. HTTPError: 404':
           return False
         else:
+          appLog('error', 'Could not fetch metadata for: ' + path, traceback.format_exc())
           raise FuseOSError(EREMOTEIO)
 
       # Cache metadata if user wants to use the cache.
@@ -214,10 +233,9 @@ class Dropbox(Operations):
       item.update({'cachets':cachets})
       self.cache[path] = item
       # Cache files if this item is a file.
-      if item['is_dir'] == True:
-        for tmp in item['contents']:
-          if 'is_deleted' not in tmp or ('is_deleted' in tmp and tmp['is_deleted'] == False):
-            tmp.update({'cachets':cachets})
+      path = item['path']
+      if 'entries' in item:
+        for tmp in item['entries']:
             self.cache[tmp['path']] = tmp
       return item
 
@@ -314,6 +332,7 @@ class Dropbox(Operations):
 
     # Read from FH.
     rbytes = ''
+    if debug == True: appLog('debug', 'File handler: ' + str(self.openfh[fh]['f']))
     try:
       rbytes = self.openfh[fh]['f'].read(length)
     except Exception, e:
@@ -427,7 +446,7 @@ class Dropbox(Operations):
     metadata = self.getDropboxMetadata(path, True)
 
     # Loop through the Dropbox API reply to build fuse structure.
-    for item in metadata['contents']:
+    for item in metadata['entries']:
       # Append entry to fuse foldercontent.
       folderitem = os.path.basename(item['path'])
       fusefolder.append(folderitem)
@@ -455,13 +474,15 @@ class Dropbox(Operations):
       raise FuseOSError(ENOENT)
 
     # Handle last modified times.
-    if 'modified' in item:
-      modified = item['modified']
-      modified = mktime(datetime.strptime(modified, '%a, %d %b %Y %H:%M:%S +0000').timetuple())
+    if 'client_modified' in item:
+      modified = item['client_modified']
+      #2012-08-11T12:41:30Z
+      modified = mktime(datetime.strptime(modified, '%Y-%m-%dT%H:%M:%SZ').timetuple())
     else:
       modified = int(now)
 
-    if item['is_dir'] == True: 
+    if debug == True: appLog('debug', "item: " + str(item))
+    if 'entries' in item or item['.tag'] == 'folder':
       # Get st_nlink count for directory.
       properties = dict(
         st_mode=S_IFDIR | 0755,
@@ -475,10 +496,10 @@ class Dropbox(Operations):
       )
       if debug == True: appLog('debug', 'Returning properties for directory: ' + path + ' (' + str(properties) + ')')
       return properties 
-    else:
+    elif item['.tag'] == 'file':
       properties = dict(
-        st_mode=S_IFREG | 0755,
-        st_size=item['bytes'],
+        st_mode=S_IFREG | 0644,
+        st_size=item['size'],
         st_ctime=modified,
         st_mtime=modified,
         st_atime=now,
@@ -520,20 +541,13 @@ class apiRequest():
       headers.update(argheaders)
 
     try:
-      req = urllib2.Request(url, None, headers)
-      response = urllib2.urlopen(req)
-
+      response = requests.post(url, data=args, headers=headers)
+      if debug == True: appLog('debug', 'GET: ' + url + " response: " + response.text)
       # If retresp is TRUE return the raw response object.
       if retresp == True:
         return response
       else: 
-        return json.loads(response.read())
-    except urllib2.HTTPError, e:
-      appLog('error', 'apiRequest failed. HTTPError: ' + str(e.code))
-      raise Exception, 'apiRequest failed. HTTPError: ' + str(e.code)
-    except urllib2.URLError, e:
-      appLog('error', 'apiRequest failed. URLError: ' + str(e.reason))
-      raise Exception, 'apiRequest failed. URLError: ' + str(e.reason)
+        return json.loads(response.text)
     except httplib.HTTPException, e:
       appLog('error', 'apiRequest failed. HTTPException: ' + traceback.format_exc())
       raise Exception, 'apiRequest failed. HTTPException: ' + traceback.format_exc()
@@ -559,19 +573,29 @@ class apiRequest():
 
     # Add body if defined. 
     if args == None and body != None:
-      headers.update({'Content-type' : 'application/octet-stream'})
-      args = body
-      
+      headers.update({'Content-type' : 'application/json'})
+      args = json.dumps(body)
+
+    if 'Content-Type' in headers and headers['Content-Type'] == 'application/octet-stream':
+      stream=True
+    else:
+      stream=None
+
+    if debug == True: appLog('debug',"POST: " + url + " headers: " + str(headers) + " args: '" + str(args) + "' body: '" + str(body) + "'" + " stream=" + str(stream))
     try:
-      req = urllib2.Request(url, args, headers)
-      response = urllib2.urlopen(req)
-      return json.loads(response.read())
-    except urllib2.HTTPError, e:
-      appLog('error', 'apiRequest failed. HTTPError: ' + str(e.code))
-      raise Exception, 'apiRequest failed. HTTPError: ' + str(e.code)
-    except urllib2.URLError, e:
-      appLog('error', 'apiRequest failed. URLError: ' + str(e.reason))
-      raise Exception, 'apiRequest failed. URLError: ' + str(e.reason)
+      r = requests.post(url, data=args, headers=headers, stream=stream)
+      if debug == True: appLog('debug', "response: code=" + str(r.status_code))
+      if r.status_code != 200:
+        if debug == True: appLog('debug', "http error: " + str(r.content))
+        err_dict=r.json()
+        if debug == True: appLog('debug', "http error (dict): " + str(err_dict))
+        if 'error' in err_dict and 'path' in err_dict['error'] and '.tag' in err_dict['error']['path'] and err_dict['error']['path']['.tag']=='not_found' :
+          return {}
+      r.raise_for_status()
+      if stream:
+        return r.raw
+      else:
+        return r.json()
     except httplib.HTTPException, e:
       appLog('error', 'apiRequest failed. HTTPException: ' + traceback.format_exc())
       raise Exception, 'apiRequest failed. HTTPException: ' + traceback.format_exc()
@@ -784,7 +808,9 @@ if __name__ == '__main__':
   account_info = ''
   try:
     headers = {'Authorization' : 'Bearer ' + access_token}
-    account_info = ar.get('https://api.dropbox.com/1/account/info', None, headers)
+    account_info = ar.post('https://api.dropboxapi.com/2/users/get_current_account', None, headers)
+    space_usage = ar.post('https://api.dropboxapi.com/2/users/get_space_usage', None, headers)
+
   except Exception, e:
     appLog('error', 'Could not talk to Dropbox API.', traceback.format_exc())
     sys.exit(-1)
@@ -803,9 +829,9 @@ if __name__ == '__main__':
       appLog('error', 'Could not write configuration file.', traceback.format_exc())
 
   # Everything went fine and we're authed against the Dropbox api.
-  print "Welcome " + account_info['display_name']
-  print "Space used: " + str(account_info['quota_info']['normal']/1024/1024/1024) + " GB"
-  print "Space available: " + str(account_info['quota_info']['quota']/1024/1024/1024) + " GB"
+  print "Welcome " + account_info['name']['display_name']
+  print "Space used: " + str(space_usage['used']/1024/1024/1024) + " GB"
+  print "Space available: " + str(space_usage['allocation']['allocated']/1024/1024/1024) + " GB"
   print ""
   print "Starting FUSE..."
   try:
