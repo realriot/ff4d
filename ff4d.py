@@ -49,12 +49,24 @@ class Dropbox(Operations):
 
     args = {'path' : query_path}
 
-#    if mhash != None and mhash != 0:
-#      args.update({'hash' : mhash})
-
-    result = self.ar.post('https://api.dropboxapi.com/2/files/list_folder', body=args)
-    if not result:
-      raise Exception('apiRequest failed. HTTPError: 404')
+    if mhash != None and mhash != 0:
+      args.update({'path' : mhash})
+    try:
+      result = self.ar.post('https://api.dropboxapi.com/2/files/list_folder', body=args)
+      if 'error' in result:
+        if debug == True: appLog('debug', 'list folder error: ' + str(result['error']))
+        if result['error'] == 'not_found':
+          raise Exception('apiRequest failed. HTTPError: 404')
+        elif result['error'] == 'not_folder':
+          result = self.ar.post('https://api.dropboxapi.com/2/files/get_metadata', body=args)
+          if 'error' in result:
+            if result['error'] == 'not_found':
+              raise Exception('apiRequest failed. HTTPError: 404')
+            else:
+              raise Exception('API Query failed')
+    except Exception, e:
+      if debug == True: appLog('debug', 'list folder exception: ' + str(e))
+      return False
 
     result['path'] = path
     if 'entries' in result:
@@ -64,42 +76,59 @@ class Dropbox(Operations):
 
   # Rename a Dropbox file/directory object.
   def dbxFileMove(self, old, new):
-    args = {'root'      : 'auto', 
-            'from_path' : old,
+    args = {'from_path' : old,
             'to_path'   : new}
-    result = self.ar.post('https://api.dropbox.com/1/fileops/move', args)
+    result = self.ar.post('https://api.dropboxapi.com/2/files/move_v2', body=args)
     return result
 
   # Delete a Dropbox file/directory object.
   def dbxFileDelete(self, path):
-    args = {'root' : 'auto',
-            'path' : path}
-    result = self.ar.post('https://api.dropbox.com/1/fileops/delete', args)
+    args = {'path' : path}
+    result = self.ar.post('https://api.dropboxapi.com/2/files/delete_v2', body=args)
     return result
 
   # Create a Dropboy folder.
   def dbxFileCreateFolder(self, path):
-    args = {'root' : 'auto',
-            'path' : path}
-    result = self.ar.post('https://api.dropbox.com/1/fileops/create_folder', args)
+    args = {'path' : path}
+    result = self.ar.post('https://api.dropboxapi.com/2/files/create_folder_v2', body=args)
     return result
 
   # Upload chunk of data to Dropbox.
   def dbxChunkedUpload(self, data, upload_id, offset=0):
-    args = {'offset' : offset}
-
+    headers = {'Dropbox-API-Arg': '{"close": false}', 'Content-Type': 'application/octet-stream'}
     # Add upload_id if its not the first chunk.
-    if upload_id != "":
-      args.update({'upload_id' : upload_id})
+    if upload_id == "":
+      result = self.ar.post('https://content.dropboxapi.com/2/files/upload_session/start', argheaders=headers, body=data).data
+      if debug == True: appLog('debug', 'dbxChunkedUpload: session start result:' + str(result))
+    else:
+      params={'cursor': {'session_id':upload_id, 'offset':offset}, 'close':False}
+      headers={'Dropbox-API-Arg': json.dumps(params), 'Content-Type': 'application/octet-stream'}
+      self.ar.post('https://content.dropboxapi.com/2/files/upload_session/append_v2', argheaders=headers, body=data)
+      result = json.dumps({'session_id': upload_id})
+      if debug == True: appLog('debug', 'dbxChunkedUpload: session append')
 
-    result = self.ar.post('https://api-content.dropbox.com/1/chunked_upload?' + urllib.urlencode(args), None, None, data)
-    return result
+    result_dict = json.loads(result)
+    result_dict.update({'offset': offset+len(data), 'upload_id': result_dict['session_id']})
+    return result_dict
 
   # Commit chunked upload to Dropbox.
-  def dbxCommitChunkedUpload(self, path, upload_id):
-    args = {'upload_id' : upload_id}
-    result = self.ar.post('https://api-content.dropbox.com/1/commit_chunked_upload/auto' + path, args)
-    return result
+  def dbxCommitChunkedUpload(self, path, upload_id, offset):
+    params = {
+      "cursor": {
+        "session_id": upload_id,
+        "offset": offset
+      },
+      "commit": {
+        "path": path,
+        "mode": "overwrite",
+        "autorename": False,
+        "mute": False
+      }
+    }
+    headers = {'Dropbox-API-Arg': json.dumps(params), 'Content-Type': 'application/octet-stream'}
+    result = self.ar.post('https://content.dropboxapi.com/2/files/upload_session/finish', argheaders=headers).data
+    if debug == True: appLog('debug', 'dbxChunkedUpload: session finish result:' + str(result))
+    return json.loads(result)
 
   # Get Dropbox filehandle.
   def dbxFilehandle(self, path, seek=False):
@@ -173,8 +202,6 @@ class Dropbox(Operations):
       # Check whether this is a directory and if there any remote changes.
       if 'entries' in item and item['cachets']<int(time()) or (deep == True and 'contents' not in item):
         # Set temporary hash value for directory non-deep cache entry.
-        if deep == True and 'contents' not in item:
-          item['hash'] = '0' 
         if debug == True: appLog('debug', 'Metadata directory deepcheck: ' + str(deep))
         if debug == True: appLog('debug', 'Cache expired for: ' + path_enc)
 	if 'cachets' in item:
@@ -184,7 +211,11 @@ class Dropbox(Operations):
         if debug == True: appLog('debug', 'cachets: ' + str(cachets) + ' - ' + str(int(time())))
         if debug == True: appLog('debug', 'Checking for changes on the remote endpoint for folder: ' + path_enc)
         try:
-          item = self.dbxMetadata(path, item['hash'])
+          if 'id' in item:
+            hash = item['id']
+          else:
+            hash = None
+          item = self.dbxMetadata(path, hash)
           if 'is_deleted' in item and item['is_deleted'] == True:
             return False
           if debug == True: appLog('debug', 'Remote endpoint signalizes changes. Updating local cache for folder: ' + path_enc)
@@ -217,7 +248,7 @@ class Dropbox(Operations):
           return False
 
         item = self.dbxMetadata(path)
-        if 'is_deleted' in item and item['is_deleted'] == True:
+        if not item or ('is_deleted' in item and item['is_deleted'] == True):
           return False
         if debug_raw == True: appLog('debug', 'Data from Dropbox API call: metadata(' + path + ')')
         if debug_raw == True: appLog('debug', str(item))
@@ -295,7 +326,7 @@ class Dropbox(Operations):
     new = new.encode('utf-8')
     if debug == True: appLog('debug', 'Called: rename() - Old: ' + old + ' New: ' + new)
     try:
-      self.dbxFileMove(old, new)
+      result = self.dbxFileMove(old, new)
     except Exception, e:
       appLog('error', 'Could not rename object: ' + old, traceback.format_exc())
       raise FuseOSError(EIO)
@@ -401,8 +432,8 @@ class Dropbox(Operations):
     fh = self.getFH('w')
     if debug == True: appLog('debug', 'Returning unique filehandle: ' + str(fh))
 
-    now = datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')
-    cachedfh = {'bytes':0, 'modified':now, 'path':path, 'is_dir':False}
+    now = datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')
+    cachedfh = {'size':0, 'client_modified':now, 'path':path, '.tag':'file'}
     self.cache[path] = cachedfh
 
     return fh
@@ -419,7 +450,7 @@ class Dropbox(Operations):
         if debug == True: appLog('debug', 'Flushing write buffer to Dropbox')
         result = self.dbxChunkedUpload(self.openfh[fh]['f']['buf'], self.openfh[fh]['f']['upload_id'], self.openfh[fh]['f']['offset'])
       if debug == True: appLog('debug', 'Finishing upload to Dropbox')
-      result = self.dbxCommitChunkedUpload(path, self.openfh[fh]['f']['upload_id'])
+      result = self.dbxCommitChunkedUpload(path, self.openfh[fh]['f']['upload_id'], self.openfh[fh]['f']['offset'])
 
     # Remove outdated data from cache if handle was opened for writing.
     if self.openfh[fh]['mode'] == 'w':
@@ -573,26 +604,36 @@ class apiRequest():
 
     # Add body if defined. 
     if args == None and body != None:
-      headers.update({'Content-type' : 'application/json'})
-      args = json.dumps(body)
+      if 'Content-Type' in headers and headers['Content-Type'] == 'application/octet-stream':
+        args=body
+      else:
+        headers.update({'Content-type' : 'application/json'})
+        args = json.dumps(body)
 
     if 'Content-Type' in headers and headers['Content-Type'] == 'application/octet-stream':
       stream=True
     else:
       stream=None
 
-    if debug == True: appLog('debug',"POST: " + url + " headers: " + str(headers) + " args: '" + str(args) + "' body: '" + str(body) + "'" + " stream=" + str(stream))
+    if debug == True: appLog('debug',"POST: " + url + " headers: " + str(headers) + "'" + " stream=" + str(stream))
+    if debug == True and stream != True and body: appLog('debug',"POST: body: '" + str(body) + "'" + " args: '" + str(args))
+
     try:
       r = requests.post(url, data=args, headers=headers, stream=stream)
       if debug == True: appLog('debug', "response: code=" + str(r.status_code))
       if r.status_code != 200:
-        if debug == True: appLog('debug', "http error: " + str(r.content))
-        err_dict=r.json()
-        if debug == True: appLog('debug', "http error (dict): " + str(err_dict))
-        if 'error' in err_dict and 'path' in err_dict['error'] and '.tag' in err_dict['error']['path'] and err_dict['error']['path']['.tag']=='not_found' :
-          return {}
+        try:
+          err_dict=r.json()
+          if debug == True: appLog('debug', "http error (dict): " + str(err_dict))
+        except Exception, e:
+          err_dict = {}
+          if debug == True: appLog('debug', "http error: " + str(r.content))
+
+        if 'error' in err_dict and 'path' in err_dict['error'] and '.tag' in err_dict['error']['path']:
+          return {'error': err_dict['error']['path']['.tag']}
       r.raise_for_status()
       if stream:
+        r.raw.decode_content = True
         return r.raw
       else:
         return r.json()
