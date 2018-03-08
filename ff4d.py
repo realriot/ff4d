@@ -26,6 +26,9 @@ from stat import S_IFDIR, S_IFLNK, S_IFREG
 from fuse import FUSE, FuseOSError, Operations
 from errno import *
 
+reload(sys)
+sys.setdefaultencoding("utf-8")
+
 ##################################
 # Class: FUSE Dropbox operations #
 ##################################
