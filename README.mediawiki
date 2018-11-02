@@ -33,11 +33,10 @@ I've tested this script running on:
 Other systems may work...
 
 === Authorize access ===
-You can use the dropbox internal process to generate an access_token
- https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-own-account/
+You can use the dropbox internal process to generate an access_token:
+https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-own-account/
 
-Or you can use the enclosed '''./getDropboxAccessToken.py''' script to fetch
-the token.
+Or you can use the enclosed '''./getDropboxAccessToken.py''' script to fetch a token.
 
 '''Please secure your access token. NOBODY may know it! This token allows full access
 to your configured dropbox space.'''
