@@ -656,7 +656,7 @@ if __name__ == '__main__':
 
   # Check for an existing configuration file.
   try:
-    scriptpath = os.path.dirname(sys.argv[0])
+    scriptpath = os.path.dirname(os.path.abspath(__file__))
     f = open(scriptpath + '/ff4d.config', 'r')
     access_token = f.readline()
     if debug == True: appLog('debug', 'Got accesstoken from configuration file: ' + str(access_token))
@@ -694,7 +694,7 @@ if __name__ == '__main__':
   # Save valid access token to configuration file.
   if args.access_token_temp == False:
     try:
-      scriptpath = os.path.dirname(sys.argv[0])
+      scriptpath = os.path.dirname(os.path.abspath(__file__))
       f = open(scriptpath + '/ff4d.config', 'w')
       f.write(access_token)
       f.close()
