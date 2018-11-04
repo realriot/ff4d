@@ -16,12 +16,16 @@ Thanks in advance
 
 === Requirements ===
 There are some requirements which have to be fulfilled to make this plugin work.
-* FUSE has to be installed (http://fuse.sourceforge.net/). On Debian you can install FUSE with
+* FUSE has to be installed (http://fuse.sourceforge.net/). On Debian/Ubuntu you can install FUSE with
  apt-get install libfuse2
-* Python pkg-resources must be installed. 
-* The user must have the permission to mount FUSE filesystems. On debian (before Jessie release) systems the user must belong to the group "fuse".
+* Python pkg-resources must be installed. On Debian/Ubuntu you can install it via
+ apt-get install python-pkg-resources
+* You need pip to install Python packages. On Debian/Ubuntu just use
+ apt-get install python-pip
+* You need to install the "dropbox" Python package which is required by FF4D. This can be done via the recently installed pip
+ pip install dropbox
+* The user must have the permission to mount FUSE filesystems. On Debian/Ubuntu systems the user must belong to the group "fuse".
  adduser <user> fuse
- * install dropbox module with `pip install dropbox`
 
 === Compatible systems ===
 I've tested this script running on:
