@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
-# Copyright (c) 2014 Sascha Schmidt <sascha@schmidt.ps> (author)
-# http://blog.schmidt.ps
+# Copyright (c) 2014-2018 Sascha Schmidt <sascha@schmidt.ps> (author)
+# https://schmidt.ps
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,7 @@
 
 from __future__ import with_statement
 
-import os, sys, pwd, errno, json, argparse, urllib, httplib, traceback, requests
+import os, sys, pwd, errno, json, argparse, traceback, dropbox
 from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -33,8 +33,8 @@ sys.setdefaultencoding("utf-8")
 # Class: FUSE Dropbox operations #
 ##################################
 class Dropbox(Operations):
-  def __init__(self, apiRequest):
-    self.ar = apiRequest
+  def __init__(self, dbx):
+    self.dbx = dbx
     self.cache = {}
     self.openfh = {}
     self.runfh = {} 
@@ -43,6 +43,27 @@ class Dropbox(Operations):
   # Wrapper functions around API calls. #
   #######################################
 
+  def dbxStruct(self, obj):
+    structname = obj.__class__.__name__
+    data = {}
+
+    for key in dir(obj):
+      if not key.startswith('_'):
+        if isinstance(getattr(obj, key), list):
+          tmpdata = []
+          for item in getattr(obj, key):
+            tmpdata.append(self.dbxStruct(item))
+          data.update({key: tmpdata})
+        else:
+          data.update({key: getattr(obj, key)})
+
+    if structname == 'FolderMetadata':
+      data.update({'.tag': 'folder'})
+    if structname == 'FileMetadata':
+      data.update({'.tag': 'file'})
+
+    return data
+
   # Get Dropbox metadata of path.
   def dbxMetadata(self, path, mhash=None):
     if path == '/':
@@ -50,23 +71,26 @@ class Dropbox(Operations):
     else:
       query_path = path
 
-    args = {'path' : query_path}
+    args = {'path': query_path}
 
     if mhash != None and mhash != 0:
-      args.update({'path' : mhash})
+      args.update({'path': mhash})
     try:
-      result = self.ar.post('https://api.dropboxapi.com/2/files/list_folder', body=args)
+      result = dbx.files_list_folder(query_path)
+      result = self.dbxStruct(result)
+
       if 'error' in result:
         if debug == True: appLog('debug', 'list folder error: ' + str(result['error']))
+
         if result['error'] == 'not_found':
           raise Exception('apiRequest failed. HTTPError: 404')
-        elif result['error'] == 'not_folder':
-          result = self.ar.post('https://api.dropboxapi.com/2/files/get_metadata', body=args)
-          if 'error' in result:
-            if result['error'] == 'not_found':
-              raise Exception('apiRequest failed. HTTPError: 404')
-            else:
-              raise Exception('API Query failed')
+
+        if result['error'] == 'not_folder':
+          result = dbx.files_get_metadata(query_path)
+          result = self.dbxStruct(result)
+        else:
+          raise Exception('API Query failed')
+
     except Exception, e:
       if debug == True: appLog('debug', 'list folder exception: ' + str(e))
       return False
@@ -74,64 +98,43 @@ class Dropbox(Operations):
     result['path'] = path
     if 'entries' in result:
       for tmp in result['entries']:
-        tmp['path']=tmp['path_display']
+        tmp['path'] = tmp['path_display']
     return result
 
   # Rename a Dropbox file/directory object.
   def dbxFileMove(self, old, new):
-    args = {'from_path' : old,
-            'to_path'   : new}
-    result = self.ar.post('https://api.dropboxapi.com/2/files/move_v2', body=args)
-    return result
+    dbx.files_move(old, new)
 
   # Delete a Dropbox file/directory object.
   def dbxFileDelete(self, path):
-    args = {'path' : path}
-    result = self.ar.post('https://api.dropboxapi.com/2/files/delete_v2', body=args)
-    return result
+    dbx.files_delete(path)
 
   # Create a Dropboy folder.
   def dbxFileCreateFolder(self, path):
-    args = {'path' : path}
-    result = self.ar.post('https://api.dropboxapi.com/2/files/create_folder_v2', body=args)
-    return result
+    dbx.files_create_folder(path)
 
   # Upload chunk of data to Dropbox.
   def dbxChunkedUpload(self, data, upload_id, offset=0):
-    headers = {'Dropbox-API-Arg': '{"close": false}', 'Content-Type': 'application/octet-stream'}
-    # Add upload_id if its not the first chunk.
     if upload_id == "":
-      result = self.ar.post('https://content.dropboxapi.com/2/files/upload_session/start', argheaders=headers, body=data).data
-      if debug == True: appLog('debug', 'dbxChunkedUpload: session start result:' + str(result))
+      result = dbx.files_upload_session_start(data)
     else:
-      params={'cursor': {'session_id':upload_id, 'offset':offset}, 'close':False}
-      headers={'Dropbox-API-Arg': json.dumps(params), 'Content-Type': 'application/octet-stream'}
-      self.ar.post('https://content.dropboxapi.com/2/files/upload_session/append_v2', argheaders=headers, body=data)
-      result = json.dumps({'session_id': upload_id})
-      if debug == True: appLog('debug', 'dbxChunkedUpload: session append')
+      cursor = dropbox.files.UploadSessionCursor(upload_id, offset)
+      result = dbx.files_upload_session_append_v2(data, cursor)
 
-    result_dict = json.loads(result)
-    result_dict.update({'offset': offset+len(data), 'upload_id': result_dict['session_id']})
-    return result_dict
+    result = self.dbxStruct(result)
+    result.update({'offset': offset+len(data), 'upload_id': result['session_id']})
+
+    return result
 
   # Commit chunked upload to Dropbox.
   def dbxCommitChunkedUpload(self, path, upload_id, offset):
-    params = {
-      "cursor": {
-        "session_id": upload_id,
-        "offset": offset
-      },
-      "commit": {
-        "path": path,
-        "mode": "overwrite",
-        "autorename": False,
-        "mute": False
-      }
-    }
-    headers = {'Dropbox-API-Arg': json.dumps(params), 'Content-Type': 'application/octet-stream'}
-    result = self.ar.post('https://content.dropboxapi.com/2/files/upload_session/finish', argheaders=headers).data
+    cursor = dropbox.files.UploadSessionCursor(upload_id, offset)
+    commitinfo = dropbox.files.CommitInfo(path)
+    result = dbx.files_upload_session_finish("", cursor, commitinfo)
+    result = self.dbxStruct(result)
+
     if debug == True: appLog('debug', 'dbxChunkedUpload: session finish result:' + str(result))
-    return json.loads(result)
+    return result
 
   # Get Dropbox filehandle.
   def dbxFilehandle(self, path, seek=False):
@@ -142,10 +145,19 @@ class Dropbox(Operations):
     result = self.ar.post('https://content.dropboxapi.com/2/files/download',argheaders=headers)
     return result
 
-
   #####################
   # Helper functions. #
   #####################
+
+  # Create data holder object.
+  def createDataObj(self, path, entries):
+    data = {'path': path}
+
+    #data.update(entries)
+
+    print "#########" + data
+    exit(-1)
+    return data
 
   # Get a valid and unique filehandle.
   def getFH(self, mode='r'):
@@ -329,7 +341,7 @@ class Dropbox(Operations):
     new = new.encode('utf-8')
     if debug == True: appLog('debug', 'Called: rename() - Old: ' + old + ' New: ' + new)
     try:
-      result = self.dbxFileMove(old, new)
+      self.dbxFileMove(old, new)
     except Exception, e:
       appLog('error', 'Could not rename object: ' + old, traceback.format_exc())
       raise FuseOSError(EIO)
@@ -504,14 +516,16 @@ class Dropbox(Operations):
     # Check wether data exists for item.
     item = self.getDropboxMetadata(path)
     if item == False:
-      #raise FuseOSError(ENOENT)
       raise FuseOSError(ENOENT)
 
     # Handle last modified times.
     if 'client_modified' in item:
-      modified = item['client_modified']
+      modified = str(item['client_modified'])
       #2012-08-11T12:41:30Z
-      modified = mktime(datetime.strptime(modified, '%Y-%m-%dT%H:%M:%SZ').timetuple())
+      if modified.endswith('Z'):
+        modified = mktime(datetime.strptime(modified, '%Y-%m-%dT%H:%M:%SZ').timetuple())
+      else:
+        modified = mktime(datetime.strptime(modified, '%Y-%m-%d %H:%M:%S').timetuple())
     else:
       modified = int(now)
 
@@ -549,151 +563,9 @@ class Dropbox(Operations):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: fsync() - Path: ' + path)
 
-########################
-# Class: API transport #
-########################
-class apiRequest():
-  def __init__(self):
-    self.headers = None
-    pass
-
-  # Function to handle GET API request.
-  def get(self, url, args=None, argheaders=None, retresp=False):
-    user_agent = "apiRequest/tools.schmidt.ps"
-    headers = {'User-Agent' : user_agent}
-
-    # Add arguments to request string.
-    if args != None and len(args) > 0:
-      url = url + '?' + urllib.urlencode(args)
-
-    # Add additionally given class headers.
-    if self.headers != None:
-      headers.update(self.headers)
-
-    # Add additionally given headers.
-    if argheaders != None:
-      headers.update(argheaders)
-
-    try:
-      response = requests.post(url, data=args, headers=headers)
-      if debug == True: appLog('debug', 'GET: ' + url + " response: " + response.text)
-      # If retresp is TRUE return the raw response object.
-      if retresp == True:
-        return response
-      else: 
-        return json.loads(response.text)
-    except httplib.HTTPException, e:
-      appLog('error', 'apiRequest failed. HTTPException: ' + traceback.format_exc())
-      raise Exception, 'apiRequest failed. HTTPException: ' + traceback.format_exc()
-    except Exception, e:
-      appLog('error', 'apiRequest failed. Unknown exception: ' + traceback.format_exc())
-      raise Exception, 'apiRequest failed. Unknown exception: ' + traceback.format_exc()
-
-  # Function to handle POST API request.
-  def post(self, url, args=None, argheaders=None, body=None):
-    user_agent = "apiRequest/tools.schmidt.ps"
-    headers = {'User-Agent' : user_agent}
-
-    if args != None:
-      args = urllib.urlencode(args)
-
-    # Add additionally given class headers.
-    if self.headers != None:
-      headers.update(self.headers)
-
-    # Add additionally given headers.
-    if argheaders != None:
-      headers.update(argheaders)
-
-    # Add body if defined. 
-    if args == None and body != None:
-      if 'Content-Type' in headers and headers['Content-Type'] == 'application/octet-stream':
-        args=body
-      else:
-        headers.update({'Content-type' : 'application/json'})
-        args = json.dumps(body)
-
-    if 'Content-Type' in headers and headers['Content-Type'] == 'application/octet-stream':
-      stream=True
-    else:
-      stream=None
-
-    if debug == True: appLog('debug',"POST: " + url + " headers: " + str(headers) + "'" + " stream=" + str(stream))
-    if debug == True and stream != True and body: appLog('debug',"POST: body: '" + str(body) + "'" + " args: '" + str(args))
-
-    try:
-      r = requests.post(url, data=args, headers=headers, stream=stream)
-      if debug == True: appLog('debug', "response: code=" + str(r.status_code))
-      if r.status_code != 200:
-        try:
-          err_dict=r.json()
-          if debug == True: appLog('debug', "http error (dict): " + str(err_dict))
-        except Exception, e:
-          err_dict = {}
-          if debug == True: appLog('debug', "http error: " + str(r.content))
-
-        if 'error' in err_dict and 'path' in err_dict['error'] and '.tag' in err_dict['error']['path']:
-          return {'error': err_dict['error']['path']['.tag']}
-      r.raise_for_status()
-      if stream:
-        r.raw.decode_content = True
-        return r.raw
-      else:
-        return r.json()
-    except httplib.HTTPException, e:
-      appLog('error', 'apiRequest failed. HTTPException: ' + traceback.format_exc())
-      raise Exception, 'apiRequest failed. HTTPException: ' + traceback.format_exc()
-    except Exception, e:
-      from traceback import print_exc
-      print_exc()
-      appLog('error', 'apiRequest failed. Unknown exception: ' + traceback.format_exc())
-      raise Exception, 'apiRequest failed. Unknown exception: ' + traceback.format_exc()
-
-###########################
-# Class: API authorization#
-###########################
-class apiAuth:
-  def __init__(self):
-    self.access_token = False
-    self.apiRequest = apiRequest() 
-    if debug == True: appLog('debug', 'Initialzed apiAuth')
-
-  # Get code for polling.
-  def getCode(self, provider, appkey):
-    if debug == True: appLog('debug', 'Trying to fetch apiAuth code: ' + provider + ' ' + appkey)
-    try:
-      args = {'get_code': '', 'provider': provider, 'appkey': appkey}
-      result = self.apiRequest.get("https://tools.schmidt.ps/authApp", args)
-      data = json.loads(result)
-    except Exception, e:
-      if debug == True: appLog('debug', 'Failed to fetch apiAuth code', traceback.format_exc())
-      return None
-
-    if 'error' in data:
-      if debug == True: appLog('debug', 'Error in reply of apiAuth code-request')
-      return None
-
-    if debug == True: appLog('debug', 'Got valid apiAuth code: ' + str(data['code']))
-    return data['code']
-
-  # Poll code and wait for result.
-  def pollCode(self, code):
-    loop = True
-    print "Waiting for authorization..."
-    while loop == True:
-      args = {'poll_code': code}
-      result = self.apiRequest.get("https://tools.schmidt.ps/authApp", args)
-      data = json.loads(result)
-
-      if 'error' in data:
-        return False
-
-      if data['state'] == 'invalid':
-        return None
-      if data['state'] == 'valid':
-        return data['authkey']
-      sleep(1)
-    return False
+  # chattr of file. Dummy until now.
+  def chmod(self, path, mode):
+    if debug == True: appLog('debug', 'Called: chmod() - Path: ' + path + " Mode: " + str(mode))
 
 #####################
 # Global functions. #
@@ -705,53 +577,6 @@ def appLog(mode, text, reason=""):
   if reason != "":
     msg = msg + " (" + reason + ")" 
   print msg
-
-# Let the user authorize this application.
-def getAccessToken():
-  dropbox_appkey = "fg7v60fm9f5ud7n"
-  sandbox_appkey = "nstd2c6lbyj4z9b"
-  
-  print ""
-  print "Please choose which permission this application will request:"
-  print "Enter 'd' - This application will have access to your whole"
-  print "            Dropbox."
-  print "Enter 's' - This application will just have access to its"
-  print "            own application folder."
-  print ""
-  validinput = False
-  while validinput == False:
-    perm = raw_input("Please enter permission key: ").strip() 
-    if perm.lower() == 'd' or perm.lower() == 's':
-      validinput = True
-
-  appkey = ""
-  if perm.lower() == 'd':
-    appkey = "fg7v60fm9f5ud7n"
-  if perm.lower() == 's':
-    appkey = "nstd2c6lbyj4z9b"
-
-  aa = apiAuth()
-  code = aa.getCode('dropbox', appkey)
-  if code is not None:
-    print ""
-    print "Please visit http://tools.schmidt.ps/authApp and use the following"
-    print "code to authorize this application: " + str(code)
-    print ""
-
-    authkey = aa.pollCode(code)
-    if authkey != False and authkey != None:
-      print "Thanks for granting permission\n"
-      return authkey
-
-    if authkey == None:
-      print "Rejected permission"
-
-    if authkey == False:
-     print "Authorization request expired"
-  else:
-    print "Failed to start authorization process"
-
-  return False
 
 ##############
 # Main entry #
@@ -770,7 +595,7 @@ if __name__ == '__main__':
   print '********************************************************'
   print '* FUSE Filesystem 4 Dropbox                            *'
   print '*                                                      *'
-  print '* Copyright 2014                                       *'                  
+  print '* Copyright 2014-2018                                  *'
   print '* Sascha Schmidt <sascha@schmidt.ps>                   *'
   print '*                                                      *'
   print '* https://github.com/realriot/ff4d/blob/master/LICENSE *'
@@ -836,29 +661,25 @@ if __name__ == '__main__':
     if debug == True: appLog('debug', 'Got temporary accesstoken from command line: ' + args.access_token_temp)
     access_token = args.access_token_temp
 
-  # Check the need to fetch a new access_token.
-  if access_token == False:
-    appLog('info', 'No accesstoken available. Fetching a new one.')
-    access_token = getAccessToken()
-    if debug == True: appLog('debug', 'Got accesstoken from user input: ' + str(access_token))
-
   # Check wether an access_token exists.
   if access_token == False:
     appLog('error', 'No valid accesstoken available. Exiting.')
     sys.exit(-1)
 
   # Validate access_token.
-  ar = apiRequest()
+  dbx = dropbox.Dropbox(access_token)
   account_info = ''
-  try:
-    headers = {'Authorization' : 'Bearer ' + access_token}
-    account_info = ar.post('https://api.dropboxapi.com/2/users/get_current_account', None, headers)
-    space_usage = ar.post('https://api.dropboxapi.com/2/users/get_space_usage', None, headers)
 
+  try:
+    account_info = dbx.users_get_current_account()
+    space_usage = dbx.users_get_space_usage()
+
+  except dropbox.exceptions.AuthError as err:
+    appLog('error', 'Failed to authorize against dropbox API.', traceback.format_exc())
+    exit(-1)
   except Exception, e:
-    appLog('error', 'Could not talk to Dropbox API.', traceback.format_exc())
-    sys.exit(-1)
-  ar.headers = {'Authorization' : 'Bearer ' + access_token}
+    appLog('error', 'Unknown error.', traceback.format_exc())
+    exit(-1)
 
   # Save valid access token to configuration file.
   if args.access_token_temp == False:
@@ -873,13 +694,13 @@ if __name__ == '__main__':
       appLog('error', 'Could not write configuration file.', traceback.format_exc())
 
   # Everything went fine and we're authed against the Dropbox api.
-  print "Welcome " + account_info['name']['display_name']
-  print "Space used: " + str(space_usage['used']/1024/1024/1024) + " GB"
-  print "Space available: " + str(space_usage['allocation']['allocated']/1024/1024/1024) + " GB"
-  print ""
+  print "Welcome " + account_info.name.display_name
+  print "Space used: " + str(space_usage.used/1024/1024/1024) + " GB"
+  print "Space available: " + str(space_usage.allocation.get_individual().allocated/1024/1024/1024) + " GB"
+  print
   print "Starting FUSE..."
   try:
-    FUSE(Dropbox(ar), mountpoint, foreground=args.background, debug=debug_fuse, sync_read=True, allow_other=allow_other, allow_root=allow_root)
+    FUSE(Dropbox(dbx), mountpoint, foreground=args.background, debug=debug_fuse, sync_read=True, allow_other=allow_other, allow_root=allow_root)
   except Exception, e:
     appLog('error', 'Failed to start FUSE...', traceback.format_exc())
     sys.exit(-1)
