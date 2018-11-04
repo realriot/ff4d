@@ -19,7 +19,7 @@
 
 from __future__ import with_statement
 
-import os, sys, pwd, errno, json, argparse, traceback, dropbox, urllib, httplib, requests
+import os, sys, pwd, errno, json, argparse, traceback, dropbox
 from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -573,6 +573,27 @@ class Dropbox(Operations):
       raise FuseOSError(ENOENT)
     return 0
 
+  # Get filesystem properties.
+  def statfs(self, path):
+    try:
+      space_usage = dbx.users_get_space_usage()
+      used_space = space_usage.used*8
+      allocated_space = space_usage.allocation.get_individual().allocated*8
+      free_space = allocated_space-used_space
+
+      result = {
+        'f_bsize':1024,
+        'f_frsize':1,
+        'f_blocks':allocated_space/1024,
+        'f_bfree':free_space/1024,
+        'f_bavail':free_space/1024,
+        'f_namemax':255
+        };
+    except Exception, e:
+      pass
+
+    return result
+
 #####################
 # Global functions. #
 #####################
@@ -705,6 +726,7 @@ if __name__ == '__main__':
   print "Space available: " + str(space_usage.allocation.get_individual().allocated/1024/1024/1024) + " GB"
   print
   print "Starting FUSE..."
+
   try:
     FUSE(Dropbox(dbx), mountpoint, foreground=args.background, debug=debug_fuse, sync_read=True, allow_other=allow_other, allow_root=allow_root)
   except Exception, e:
