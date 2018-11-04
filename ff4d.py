@@ -19,7 +19,7 @@
 
 from __future__ import with_statement
 
-import os, sys, pwd, errno, json, argparse, traceback, dropbox
+import os, sys, pwd, errno, json, argparse, traceback, dropbox, urllib, httplib, requests
 from time import time, mktime, sleep
 from datetime import datetime
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -138,11 +138,7 @@ class Dropbox(Operations):
 
   # Get Dropbox filehandle.
   def dbxFilehandle(self, path, seek=False):
-    headers = {'Dropbox-API-Arg': "{\"path\": \""+path+"\"}"}
-    headers.update({'Content-Type':'application/octet-stream'})
-    if seek != False:
-      headers.update({'Range' : 'bytes=' + str(seek)})
-    result = self.ar.post('https://content.dropboxapi.com/2/files/download',argheaders=headers)
+    result = dbx.files_download(path)[1].raw
     return result
 
   #####################
@@ -368,7 +364,7 @@ class Dropbox(Operations):
           self.openfh[fh]['f'] = self.dbxFilehandle(path, offset)
         except Exception, e:
           appLog('error', 'Could not open remote file: ' + path, traceback.format_exc())
-          raise FuseOSError(EIO) 
+          raise FuseOSError(EIO)
       else:
         if debug == True: appLog('debug', 'FH handle for reading process already opened')
         if self.openfh[fh]['eoffset'] != offset:
