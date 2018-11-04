@@ -563,9 +563,19 @@ class Dropbox(Operations):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: fsync() - Path: ' + path)
 
-  # chattr of file. Dummy until now.
+  # Change attributes of item. Dummy until now.
   def chmod(self, path, mode):
     if debug == True: appLog('debug', 'Called: chmod() - Path: ' + path + " Mode: " + str(mode))
+    if not self.getDropboxMetadata(path):
+      raise FuseOSError(ENOENT)
+    return 0
+
+  # Change modes of item. Dummy until now.
+  def chattr(self, path, uid, gid):
+    if debug == True: appLog('debug', 'Called: chattr() - Path: ' + path + " UID: " + str(uid) + " GID: " + str(gid))
+    if not self.getDropboxMetadata(path):
+      raise FuseOSError(ENOENT)
+    return 0
 
 #####################
 # Global functions. #
