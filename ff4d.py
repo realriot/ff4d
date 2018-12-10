@@ -585,7 +585,6 @@ class Dropbox(Operations):
       space_usage = dbx.users_get_space_usage()
       used_space = space_usage.used*8
       
-      allocated_space = space_usage.allocation.get_individual().allocated*8
       allocated_space = space_usage_allocated(space_usage)*8    
       free_space = allocated_space-used_space
 
