@@ -29,6 +29,12 @@ from errno import *
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
+
+def space_usage_allocated(space_usage):
+  '''Return the space usage allocation for an individual or team account as applicable.'''
+  return space_usage.allocation.get_individual().allocated if space_usage.allocation.is_individual() else space_usage.allocation.get_team().allocated
+
+
 ##################################
 # Class: FUSE Dropbox operations #
 ##################################
@@ -578,7 +584,9 @@ class Dropbox(Operations):
     try:
       space_usage = dbx.users_get_space_usage()
       used_space = space_usage.used*8
+      
       allocated_space = space_usage.allocation.get_individual().allocated*8
+      allocated_space = space_usage_allocated(space_usage)*8    
       free_space = allocated_space-used_space
 
       result = {
@@ -721,9 +729,12 @@ if __name__ == '__main__':
       appLog('error', 'Could not write configuration file.', traceback.format_exc())
 
   # Everything went fine and we're authed against the Dropbox api.
+
+  
+  
   print "Welcome " + account_info.name.display_name
   print "Space used: " + str(space_usage.used/1024/1024/1024) + " GB"
-  print "Space available: " + str(space_usage.allocation.get_individual().allocated/1024/1024/1024) + " GB"
+  print "Space available: " + str(space_usage_allocated(space_usage)/1024/1024/1024) + " GB"  
   print
   print "Starting FUSE..."
 
