@@ -29,6 +29,12 @@ from errno import *
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
+
+def space_usage_allocated(space_usage):
+  '''Return the space usage allocation for an individual or team account as applicable.'''
+  return space_usage.allocation.get_individual().allocated if space_usage.allocation.is_individual() else space_usage.allocation.get_team().allocated
+
+
 ##################################
 # Class: FUSE Dropbox operations #
 ##################################
@@ -37,7 +43,7 @@ class Dropbox(Operations):
     self.dbx = dbx
     self.cache = {}
     self.openfh = {}
-    self.runfh = {} 
+    self.runfh = {}
 
   #######################################
   # Wrapper functions around API calls. #
@@ -191,7 +197,7 @@ class Dropbox(Operations):
       else:
         cur_path=os.path.dirname(path)
         if cur_path in self.cache:
-          if 'entries' in self.cache[cur_path]: 
+          if 'entries' in self.cache[cur_path]:
             if debug == True: appLog('debug', 'Removing parent path from file in cache')
             self.cache.pop(os.path.dirname(path))
       if debug == True: appLog('debug', 'Removing from cache: ' + path)
@@ -306,7 +312,7 @@ class Dropbox(Operations):
     except Exception, e:
       appLog('error', 'Could not delete folder: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
-    if debug == True: appLog('debug', 'Successfully deleted folder: ' + path) 
+    if debug == True: appLog('debug', 'Successfully deleted folder: ' + path)
 
     # Remove outdated data from cache.
     self.removeFromCache(path)
@@ -394,17 +400,17 @@ class Dropbox(Operations):
     try:
       # Check for the beginning of the file.
       if fh in self.openfh:
-        if self.openfh[fh]['f'] == False: 
+        if self.openfh[fh]['f'] == False:
           if debug == True: appLog('debug', 'Uploading first chunk to Dropbox...')
           # Check if the write request exceeds the maximum buffer size.
-          if len(buf) >= write_cache or len(buf) < 4096: 
+          if len(buf) >= write_cache or len(buf) < 4096:
             if debug == True: appLog('debug', 'Cache exceeds configured write_cache. Uploading...')
             result = self.dbxChunkedUpload(buf, "", 0)
             self.openfh[fh]['f'] = {'upload_id':result['upload_id'], 'offset':result['offset'], 'buf':''}
           else:
             if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...')
             self.openfh[fh]['f'] = {'upload_id':'', 'offset':0, 'buf':buf}
-          return len(buf) 
+          return len(buf)
         else:
           if debug == True: appLog('debug', 'Uploading another chunk to Dropbox...')
           if len(buf)+len(self.openfh[fh]['f']['buf']) >= write_cache or len(buf) < 4096:
@@ -414,9 +420,9 @@ class Dropbox(Operations):
           else:
             if debug == True: appLog('debug', 'Buffer does not exceed configured write_cache. Caching...')
             self.openfh[fh]['f'].update({'buf':self.openfh[fh]['f']['buf']+buf})
-          return len(buf) 
+          return len(buf)
       else:
-        raise FuseOSError(EIO) 
+        raise FuseOSError(EIO)
     except Exception, e:
       appLog('error', 'Could not write to remote file: ' + path, traceback.format_exc())
       raise FuseOSError(EIO)
@@ -428,7 +434,7 @@ class Dropbox(Operations):
 
     # Validate flags.
     if flags & os.O_APPEND:
-      if debug == True: appLog('debug', 'O_APPEND mode not supported for open()') 
+      if debug == True: appLog('debug', 'O_APPEND mode not supported for open()')
       raise FuseOSError(EOPNOTSUPP)
 
     fh = self.getFH('r')
@@ -539,7 +545,7 @@ class Dropbox(Operations):
         st_nlink=2
       )
       if debug == True: appLog('debug', 'Returning properties for directory: ' + path + ' (' + str(properties) + ')')
-      return properties 
+      return properties
     elif item['.tag'] == 'file':
       properties = dict(
         st_mode=S_IFREG | 0644,
@@ -552,7 +558,7 @@ class Dropbox(Operations):
         st_nlink=1,
       )
       if debug == True: appLog('debug', 'Returning properties for file: ' + path + ' (' + str(properties) + ')')
-      return properties 
+      return properties
 
   # Flush filesystem cache. Always true in this case.
   def fsync(self, path, fdatasync, fh):
@@ -578,7 +584,7 @@ class Dropbox(Operations):
     try:
       space_usage = dbx.users_get_space_usage()
       used_space = space_usage.used*8
-      allocated_space = space_usage.allocation.get_individual().allocated*8
+      allocated_space = space_usage_allocated(space_usage)*8
       free_space = allocated_space-used_space
 
       result = {
@@ -602,7 +608,7 @@ class Dropbox(Operations):
 def appLog(mode, text, reason=""):
   msg = "[" + mode.upper() + "] " + text
   if reason != "":
-    msg = msg + " (" + reason + ")" 
+    msg = msg + " (" + reason + ")"
   print msg
 
 ##############
@@ -634,7 +640,7 @@ if __name__ == '__main__':
   parser.add_argument('-dr', '--debug-raw', help='Show raw debug output', action='store_true', default=False)
   parser.add_argument('-df', '--debug-fuse', help='Show FUSE debug output', action='store_true', default=False)
 
-  # Mutual exclusion of arguments. 
+  # Mutual exclusion of arguments.
   atgroup = parser.add_mutually_exclusive_group()
   atgroup.add_argument('-ap', '--access-token-perm', help='Use this access token permanently (will be saved)', default=False)
   atgroup.add_argument('-at', '--access-token-temp', help='Use this access token only temporarily (will not be saved)', default=False)
@@ -644,7 +650,7 @@ if __name__ == '__main__':
   parser.add_argument('-ct', '--cache-time', help='Cache Dropbox data for X seconds (120 by default)', default=120, type=int)
   parser.add_argument('-wc', '--write-cache', help='Cache X bytes (chunk size) before uploading to Dropbox (4 MB by default)', default=4194304, type=int)
   parser.add_argument('-bg', '--background', help='Pushes FF4D into background', action='store_false', default=True)
-  
+
   parser.add_argument('mountpoint', help='Mount point for Dropbox source')
   args = parser.parse_args()
 
@@ -721,9 +727,12 @@ if __name__ == '__main__':
       appLog('error', 'Could not write configuration file.', traceback.format_exc())
 
   # Everything went fine and we're authed against the Dropbox api.
+
+
+
   print "Welcome " + account_info.name.display_name
   print "Space used: " + str(space_usage.used/1024/1024/1024) + " GB"
-  print "Space available: " + str(space_usage.allocation.get_individual().allocated/1024/1024/1024) + " GB"
+  print "Space available: " + str(space_usage_allocated(space_usage)/1024/1024/1024) + " GB"
   print
   print "Starting FUSE..."
 
